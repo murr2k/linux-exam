@@ -1,0 +1,30 @@
+# Grafana Datasources Configuration for MPU-6050 Test Dashboard
+# Author: Murray Kopit <murr2k@gmail.com>
+
+apiVersion: 1
+
+datasources:
+  # PostgreSQL test results database
+  - name: MPU6050-TestDB
+    type: postgres
+    access: proxy
+    url: test-database:5432
+    database: mpu6050_test_results
+    user: dashboard_reader
+    secureJsonData:
+      password: dashboard_readonly_123
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1500
+      timescaledb: false
+    isDefault: true
+    editable: true
+    version: 1
+    
+  # TestData for demo/testing
+  - name: TestData
+    type: testdata
+    access: proxy
+    isDefault: false
+    editable: true
+    version: 1

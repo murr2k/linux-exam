@@ -1,0 +1,14 @@
+# Grafana Dashboard Provisioning Configuration
+# Author: Murray Kopit <murr2k@gmail.com>
+
+apiVersion: 1
+
+providers:
+  - name: 'default'
+    orgId: 1
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

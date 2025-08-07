@@ -1,0 +1,125 @@
+# Docker ignore file for MPU-6050 E2E testing
+# Exclude unnecessary files from Docker build context
+
+# Test results and logs
+test-results/
+test-logs/
+artifacts/
+*.log
+*.xml
+*.html
+*.json
+*.tar.gz
+
+# Build artifacts
+build/
+*.o
+*.ko
+*.mod
+*.mod.c
+*.cmd
+*.symvers
+*.order
+Module.symvers
+modules.order
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Git files
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+README*
+CHANGELOG*
+LICENSE*
+docs/
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+
+# Coverage files
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# Node.js (if any)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Temporary files
+.tmp/
+.temp/
+/tmp/
+temp*/
+*.tmp
+*.temp
+
+# OS specific
+.Trashes
+ehthumbs.db
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Docker specific
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Test specific exclusions
+test-data/
+fixtures/large/
+*.dump
+*.sql
+
+# Environment files
+.env
+.env.*
+
+# Claude/MCP specific
+.claude/
+.mcp.json
+.roomodes
+.roo/
+.swarm/
+.hive-mind/
+.claude-flow/
+memory/
+coordination/
+
+# Large binary files
+*.bin
+*.img
+*.iso
+*.vmdk
+*.qcow2

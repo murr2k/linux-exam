@@ -1,0 +1,73 @@
+{
+    "device_path": "/dev/mpu6050",
+    "module_name": "mpu6050_driver",
+    "module_path": "../drivers/mpu6050_driver.ko",
+    "test_duration": 300,
+    "sample_rate": 100.0,
+    "stress_test_duration": 600,
+    "concurrent_clients": 4,
+    "memory_limit_mb": 64,
+    "cpu_limit_percent": 25,
+    "validate_ranges": true,
+    "generate_reports": true,
+    "verbose": false,
+    "test_suites": {
+        "module_tests": {
+            "enabled": true,
+            "timeout": 60,
+            "retry_count": 2
+        },
+        "basic_functionality": {
+            "enabled": true,
+            "timeout": 120,
+            "retry_count": 1
+        },
+        "data_operations": {
+            "enabled": true,
+            "timeout": 300,
+            "sample_count": 1000
+        },
+        "performance_tests": {
+            "enabled": true,
+            "timeout": 600,
+            "throughput_threshold": 100,
+            "latency_threshold_ms": 10
+        },
+        "stress_tests": {
+            "enabled": true,
+            "timeout": 1200,
+            "duration": 600,
+            "clients": 4
+        }
+    },
+    "sensor_limits": {
+        "accel_range_2g": [-2048, 2047],
+        "accel_range_4g": [-4096, 4095],
+        "accel_range_8g": [-8192, 8191],
+        "accel_range_16g": [-16384, 16383],
+        "gyro_range_250": [-250000, 249999],
+        "gyro_range_500": [-500000, 499999],
+        "gyro_range_1000": [-1000000, 999999],
+        "gyro_range_2000": [-2000000, 1999999],
+        "temperature_range": [-4000, 8500],
+        "noise_thresholds": {
+            "accel_mg": 50.0,
+            "gyro_mdps": 25.0,
+            "temp_celsius": 2.0
+        }
+    },
+    "reporting": {
+        "generate_html": true,
+        "generate_junit": true,
+        "generate_json": true,
+        "include_charts": true,
+        "chart_types": ["throughput", "latency", "resource_usage"],
+        "output_directory": "../../../test-results/e2e/reports"
+    },
+    "logging": {
+        "level": "INFO",
+        "file": "test_framework.log",
+        "max_size_mb": 10,
+        "backup_count": 5
+    }
+}

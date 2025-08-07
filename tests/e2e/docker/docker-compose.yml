@@ -1,0 +1,333 @@
+# Docker Compose configuration for MPU-6050 E2E testing environment
+# Author: Murray Kopit <murr2k@gmail.com>
+#
+# This compose file defines the complete testing infrastructure including
+# the main test service, database for results, and monitoring components.
+
+version: '3.8'
+
+services:
+  # Main E2E test service
+  mpu6050-e2e-tests:
+    build:
+      context: ../../..
+      dockerfile: tests/e2e/docker/Dockerfile.e2e
+      target: test-environment
+      args:
+        - BUILD_DATE=${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
+        - VCS_REF=${VCS_REF:-HEAD}
+    image: mpu6050-e2e-test:latest
+    container_name: mpu6050-e2e-tests
+    hostname: mpu6050-test-runner
+    
+    # Privilege settings for kernel module testing
+    privileged: true
+    cap_add:
+      - SYS_MODULE
+      - SYS_ADMIN
+      - DAC_OVERRIDE
+    
+    # Device access
+    devices:
+      - /dev/null:/dev/null
+      # Add real I2C devices if available
+      # - /dev/i2c-1:/dev/i2c-1:rw
+    
+    # Volume mounts
+    volumes:
+      # Source code (read-only for integrity)
+      - ../../../:/opt/mpu6050-test/src:ro
+      # Build artifacts (read-write)
+      - ../../../build:/opt/mpu6050-test/build:rw
+      # Test results (persistent)
+      - test-results:/opt/mpu6050-test/results:rw
+      # Logs (persistent)
+      - test-logs:/var/log/mpu6050-test:rw
+      # Linux kernel modules (required for module building)
+      - /lib/modules:/lib/modules:ro
+      # Kernel source (if available)
+      - /usr/src:/usr/src:ro
+      # Proc filesystem (for system info)
+      - /proc:/host-proc:ro
+      # System configuration
+      - /etc/localtime:/etc/localtime:ro
+    
+    # Network configuration
+    networks:
+      - test-network
+    
+    # Environment variables
+    environment:
+      # Test configuration
+      - TEST_ENV=docker
+      - TEST_MODE=e2e
+      - TEST_PARALLEL=true
+      - TEST_VERBOSE=${TEST_VERBOSE:-false}
+      - TEST_CONTINUOUS=${TEST_CONTINUOUS:-false}
+      - TEST_TIMEOUT=${TEST_TIMEOUT:-300}
+      - TEST_RETRIES=${TEST_RETRIES:-3}
+      
+      # Hardware simulation
+      - SIMULATE_HARDWARE=${SIMULATE_HARDWARE:-true}
+      - SIMULATOR_ENABLED=${SIMULATOR_ENABLED:-true}
+      - I2C_SIMULATOR_BUS=${I2C_SIMULATOR_BUS:-1}
+      - MPU6050_I2C_ADDR=${MPU6050_I2C_ADDR:-0x68}
+      
+      # Coverage and profiling
+      - COVERAGE_ENABLED=${COVERAGE_ENABLED:-true}
+      - COVERAGE_MIN_THRESHOLD=${COVERAGE_MIN_THRESHOLD:-80}
+      - PROFILING_ENABLED=${PROFILING_ENABLED:-false}
+      
+      # Logging configuration
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-detailed}
+      - COLORIZED_OUTPUT=${COLORIZED_OUTPUT:-true}
+      
+      # Performance testing
+      - PERF_TEST_ENABLED=${PERF_TEST_ENABLED:-true}
+      - PERF_MIN_THROUGHPUT=${PERF_MIN_THROUGHPUT:-50}
+      - PERF_TEST_DURATION=${PERF_TEST_DURATION:-60}
+      
+      # CI/CD integration
+      - CI=${CI:-false}
+      - GITHUB_ACTIONS=${GITHUB_ACTIONS:-false}
+      - BUILD_NUMBER=${BUILD_NUMBER:-0}
+      - GIT_COMMIT=${GIT_COMMIT:-unknown}
+      - GIT_BRANCH=${GIT_BRANCH:-main}
+      
+      # System paths
+      - TEST_HOME=/opt/mpu6050-test
+      - TEST_RESULTS_DIR=/opt/mpu6050-test/results
+      - TEST_LOGS_DIR=/var/log/mpu6050-test
+      - PYTHONPATH=/opt/mpu6050-test/src
+      - C_INCLUDE_PATH=/opt/mpu6050-test/src/include
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+    
+    # Health check
+    healthcheck:
+      test: [
+        "CMD-SHELL", 
+        "/usr/local/bin/test-health-check || exit 1"
+      ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Dependencies
+    depends_on:
+      test-database:
+        condition: service_healthy
+      
+    # Restart policy
+    restart: unless-stopped
+    
+    # Entrypoint override
+    entrypoint: ["/opt/mpu6050-test/docker/entrypoint.sh"]
+    
+    # Default command (can be overridden)
+    command: ["--run-all"]
+  
+  # Test results database (PostgreSQL)
+  test-database:
+    image: postgres:15-alpine
+    container_name: mpu6050-test-db
+    hostname: test-database
+    
+    environment:
+      - POSTGRES_DB=mpu6050_test_results
+      - POSTGRES_USER=testuser
+      - POSTGRES_PASSWORD=testpass123
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8
+      - TZ=UTC
+    
+    volumes:
+      - test-db-data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    
+    networks:
+      - test-network
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    
+    # Health check
+    healthcheck:
+      test: [
+        "CMD-SHELL", 
+        "pg_isready -U testuser -d mpu6050_test_results || exit 1"
+      ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    
+    # Restart policy
+    restart: unless-stopped
+  
+  # Test results web interface (optional)
+  test-dashboard:
+    image: grafana/grafana:latest
+    container_name: mpu6050-test-dashboard
+    hostname: test-dashboard
+    
+    # Port mapping
+    ports:
+      - "${DASHBOARD_PORT:-3000}:3000"
+    
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-testadmin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana-dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana-datasources:/etc/grafana/provisioning/datasources:ro
+    
+    networks:
+      - test-network
+    
+    # Dependencies
+    depends_on:
+      test-database:
+        condition: service_healthy
+    
+    # Health check
+    healthcheck:
+      test: [
+        "CMD-SHELL", 
+        "curl -f http://localhost:3000/api/health || exit 1"
+      ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Only start if dashboard is enabled
+    profiles:
+      - dashboard
+  
+  # Log aggregation service (optional)
+  log-aggregator:
+    image: elasticsearch:8.9.0
+    container_name: mpu6050-log-aggregator
+    hostname: log-aggregator
+    
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    
+    networks:
+      - test-network
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    
+    # Health check
+    healthcheck:
+      test: [
+        "CMD-SHELL", 
+        "curl -f http://localhost:9200/_cluster/health || exit 1"
+      ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # Only start if logging is enabled
+    profiles:
+      - logging
+
+# Network configuration
+networks:
+  test-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+          gateway: 172.28.0.1
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "true"
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+      com.docker.network.bridge.host_binding_ipv4: "0.0.0.0"
+
+# Volume definitions
+volumes:
+  # Test results storage
+  test-results:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./test-results
+  
+  # Test logs storage
+  test-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./test-logs
+  
+  # Database storage
+  test-db-data:
+    driver: local
+  
+  # Grafana storage
+  grafana-data:
+    driver: local
+  
+  # Elasticsearch storage
+  elasticsearch-data:
+    driver: local
+
+# Configuration for different environments
+x-common-logging: &common-logging
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+      labels: "service,environment"
+
+# Apply common logging to all services
+services:
+  mpu6050-e2e-tests:
+    <<: *common-logging
+  test-database:
+    <<: *common-logging
+  test-dashboard:
+    <<: *common-logging
+  log-aggregator:
+    <<: *common-logging

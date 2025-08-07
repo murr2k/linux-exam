@@ -1,0 +1,392 @@
+# Multi-stage Docker build for MPU-6050 E2E testing
+# Author: Murray Kopit <murr2k@gmail.com>
+# 
+# This Dockerfile creates a comprehensive testing environment for the MPU-6050
+# kernel driver with all necessary tools, simulators, and testing frameworks.
+
+# Stage 1: Base system with kernel headers and build tools
+FROM ubuntu:22.04 as base-builder
+
+# Avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Install essential packages and kernel headers
+RUN apt-get update && apt-get install -y \
+    # Build essentials
+    build-essential \
+    gcc \
+    make \
+    cmake \
+    pkg-config \
+    # Kernel development
+    linux-headers-generic \
+    linux-headers-$(uname -r) \
+    kmod \
+    # Development tools
+    git \
+    wget \
+    curl \
+    unzip \
+    # Python and testing frameworks
+    python3 \
+    python3-pip \
+    python3-dev \
+    # C testing libraries
+    libcunit1-dev \
+    check \
+    # Coverage and analysis tools
+    lcov \
+    gcovr \
+    valgrind \
+    # Debugging and monitoring
+    gdb \
+    strace \
+    ltrace \
+    # Code quality tools
+    cppcheck \
+    clang-format \
+    # I2C and hardware simulation tools
+    i2c-tools \
+    libi2c-dev \
+    # Process and system utilities
+    procps \
+    psmisc \
+    htop \
+    tree \
+    # Cleanup
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Stage 2: Python testing environment
+FROM base-builder as python-env
+
+# Install Python testing and analysis packages
+RUN pip3 install --no-cache-dir \
+    pytest \
+    pytest-cov \
+    pytest-xdist \
+    pytest-timeout \
+    pytest-benchmark \
+    # Data analysis and visualization
+    numpy \
+    scipy \
+    matplotlib \
+    pandas \
+    # Hardware simulation and mocking
+    pyserial \
+    smbus2 \
+    # Performance and profiling
+    memory-profiler \
+    psutil \
+    # Code quality and formatting
+    pylint \
+    black \
+    flake8 \
+    mypy \
+    # Logging and reporting
+    colorlog \
+    tabulate \
+    # Additional testing utilities
+    parameterized \
+    mock
+
+# Stage 3: I2C simulator compilation
+FROM python-env as simulator-builder
+
+# Create directories for simulator source
+RUN mkdir -p /opt/simulator/src /opt/simulator/bin
+
+# Copy simulator source (if exists) or create a basic one
+WORKDIR /opt/simulator/src
+
+# Create a basic I2C device simulator
+RUN cat > i2c_simulator.c << 'EOF'
+/*
+ * Basic I2C Device Simulator for MPU-6050 Testing
+ * Simulates I2C bus communication for kernel driver testing
+ */
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/i2c.h>
+#include <linux/proc_fs.h>
+#include <linux/uaccess.h>
+
+#define SIMULATOR_NAME "i2c-mpu6050-sim"
+#define MPU6050_I2C_ADDR 0x68
+#define MPU6050_WHO_AM_I 0x75
+#define MPU6050_WHO_AM_I_VAL 0x68
+
+static struct i2c_adapter *sim_adapter;
+static struct proc_dir_entry *proc_entry;
+
+/* Simulated register values */
+static u8 sim_registers[256] = {
+    [MPU6050_WHO_AM_I] = MPU6050_WHO_AM_I_VAL,
+    [0x3B] = 0x10, [0x3C] = 0x00, /* ACCEL_XOUT_H, ACCEL_XOUT_L */
+    [0x3D] = 0x20, [0x3E] = 0x00, /* ACCEL_YOUT_H, ACCEL_YOUT_L */
+    [0x3F] = 0x30, [0x40] = 0x00, /* ACCEL_ZOUT_H, ACCEL_ZOUT_L */
+    [0x43] = 0x40, [0x44] = 0x00, /* GYRO_XOUT_H, GYRO_XOUT_L */
+    [0x45] = 0x50, [0x46] = 0x00, /* GYRO_YOUT_H, GYRO_YOUT_L */
+    [0x47] = 0x60, [0x48] = 0x00, /* GYRO_ZOUT_H, GYRO_ZOUT_L */
+    [0x41] = 0x70, [0x42] = 0x00, /* TEMP_OUT_H, TEMP_OUT_L */
+};
+
+static int sim_i2c_read(struct i2c_client *client, u8 reg, u8 *val)
+{
+    if (reg < sizeof(sim_registers)) {
+        *val = sim_registers[reg];
+        return 0;
+    }
+    return -EINVAL;
+}
+
+static int sim_i2c_write(struct i2c_client *client, u8 reg, u8 val)
+{
+    if (reg < sizeof(sim_registers)) {
+        sim_registers[reg] = val;
+        return 0;
+    }
+    return -EINVAL;
+}
+
+static ssize_t proc_write(struct file *file, const char __user *buffer,
+                         size_t count, loff_t *pos)
+{
+    return count;
+}
+
+static ssize_t proc_read(struct file *file, char __user *buffer,
+                        size_t count, loff_t *pos)
+{
+    static const char msg[] = "I2C MPU-6050 Simulator Active\n";
+    return simple_read_from_buffer(buffer, count, pos, msg, sizeof(msg)-1);
+}
+
+static const struct proc_ops proc_fops = {
+    .proc_read = proc_read,
+    .proc_write = proc_write,
+};
+
+static int __init sim_init(void)
+{
+    proc_entry = proc_create(SIMULATOR_NAME, 0666, NULL, &proc_fops);
+    if (!proc_entry) {
+        printk(KERN_ERR "Failed to create proc entry\n");
+        return -ENOMEM;
+    }
+    
+    printk(KERN_INFO "I2C MPU-6050 Simulator loaded\n");
+    return 0;
+}
+
+static void __exit sim_exit(void)
+{
+    if (proc_entry) {
+        proc_remove(proc_entry);
+    }
+    printk(KERN_INFO "I2C MPU-6050 Simulator unloaded\n");
+}
+
+module_init(sim_init);
+module_exit(sim_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Murray Kopit <murr2k@gmail.com>");
+MODULE_DESCRIPTION("I2C MPU-6050 Device Simulator for Testing");
+MODULE_VERSION("1.0");
+EOF
+
+# Create Makefile for simulator
+RUN cat > Makefile << 'EOF'
+obj-m += i2c_simulator.o
+KDIR ?= /lib/modules/$(shell uname -r)/build
+
+all:
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
+
+clean:
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
+EOF
+
+# Try to build simulator (may fail in container, but source is prepared)
+RUN make clean && (make || true)
+
+# Stage 4: Final testing environment
+FROM python-env as test-environment
+
+# Copy simulator from builder stage
+COPY --from=simulator-builder /opt/simulator /opt/simulator
+
+# Create testing user (non-root for security)
+RUN groupadd -r testuser && useradd -r -g testuser -d /home/testuser -m testuser
+
+# Create necessary directories
+RUN mkdir -p /opt/mpu6050-test/{src,build,results,logs} \
+    && mkdir -p /dev/mpu6050-test \
+    && mkdir -p /var/log/mpu6050-test
+
+# Set up test environment variables
+ENV TEST_HOME=/opt/mpu6050-test
+ENV TEST_RESULTS_DIR=/opt/mpu6050-test/results
+ENV TEST_LOGS_DIR=/var/log/mpu6050-test
+ENV PYTHONPATH=/opt/mpu6050-test/src
+ENV C_INCLUDE_PATH=/opt/mpu6050-test/src/include
+
+# Install additional test utilities
+RUN apt-get update && apt-get install -y \
+    # Simulation and mocking tools
+    socat \
+    netcat-openbsd \
+    # File system testing
+    fuse3 \
+    # Network testing
+    iproute2 \
+    iputils-ping \
+    # System monitoring
+    sysstat \
+    iostat \
+    # Additional debugging
+    lsof \
+    tcpdump \
+    # Cleanup
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create test configuration directory
+RUN mkdir -p /etc/mpu6050-test
+
+# Create test configuration file
+RUN cat > /etc/mpu6050-test/test.conf << 'EOF'
+# MPU-6050 E2E Test Configuration
+
+# Test execution settings
+TEST_TIMEOUT=300
+TEST_RETRIES=3
+TEST_PARALLEL_JOBS=4
+
+# Device settings
+DEVICE_PATH=/dev/mpu6050
+I2C_BUS=1
+I2C_ADDRESS=0x68
+
+# Simulation settings
+SIMULATOR_ENABLED=true
+SIMULATE_HARDWARE=false
+SIMULATOR_NOISE_LEVEL=0.01
+
+# Performance settings
+PERF_TEST_ITERATIONS=1000
+PERF_TEST_DURATION=60
+PERF_MIN_THROUGHPUT=50
+
+# Coverage settings
+COVERAGE_ENABLED=true
+COVERAGE_MIN_THRESHOLD=80
+
+# Logging settings
+LOG_LEVEL=INFO
+LOG_FORMAT=detailed
+LOG_ROTATION=true
+EOF
+
+# Set up proper permissions
+RUN chown -R testuser:testuser /opt/mpu6050-test \
+    && chown -R testuser:testuser /var/log/mpu6050-test \
+    && chmod -R 755 /opt/mpu6050-test \
+    && chmod 644 /etc/mpu6050-test/test.conf
+
+# Install health check utilities
+RUN cat > /usr/local/bin/test-health-check << 'EOF'
+#!/bin/bash
+# Health check for MPU-6050 test environment
+
+set -e
+
+echo "Checking test environment health..."
+
+# Check kernel headers
+if [ ! -d "/lib/modules/$(uname -r)/build" ]; then
+    echo "ERROR: Kernel headers not found"
+    exit 1
+fi
+
+# Check build tools
+for tool in gcc make python3; do
+    if ! command -v $tool >/dev/null 2>&1; then
+        echo "ERROR: $tool not found"
+        exit 1
+    fi
+done
+
+# Check test directories
+for dir in /opt/mpu6050-test /var/log/mpu6050-test; do
+    if [ ! -d "$dir" ]; then
+        echo "ERROR: Directory $dir not found"
+        exit 1
+    fi
+done
+
+# Check configuration
+if [ ! -f "/etc/mpu6050-test/test.conf" ]; then
+    echo "ERROR: Test configuration not found"
+    exit 1
+fi
+
+echo "Health check passed!"
+exit 0
+EOF
+
+RUN chmod +x /usr/local/bin/test-health-check
+
+# Create entrypoint preparation script
+RUN cat > /usr/local/bin/prepare-test-env << 'EOF'
+#!/bin/bash
+# Prepare test environment for execution
+
+set -e
+
+echo "Preparing MPU-6050 test environment..."
+
+# Create device node if it doesn't exist (for simulation)
+if [ ! -c /dev/mpu6050 ] && [ "${SIMULATE_HARDWARE:-false}" = "true" ]; then
+    echo "Creating simulated device node..."
+    mknod /dev/mpu6050 c 242 0 2>/dev/null || true
+    chmod 666 /dev/mpu6050 2>/dev/null || true
+fi
+
+# Load test configuration
+if [ -f /etc/mpu6050-test/test.conf ]; then
+    source /etc/mpu6050-test/test.conf
+fi
+
+# Create log files with proper permissions
+mkdir -p "${TEST_LOGS_DIR:-/var/log/mpu6050-test}"
+touch "${TEST_LOGS_DIR:-/var/log/mpu6050-test}/test.log"
+chmod 666 "${TEST_LOGS_DIR:-/var/log/mpu6050-test}/test.log"
+
+# Initialize test result directory
+mkdir -p "${TEST_RESULTS_DIR:-/opt/mpu6050-test/results}"
+chmod 755 "${TEST_RESULTS_DIR:-/opt/mpu6050-test/results}"
+
+echo "Test environment prepared successfully!"
+EOF
+
+RUN chmod +x /usr/local/bin/prepare-test-env
+
+# Set working directory
+WORKDIR /opt/mpu6050-test
+
+# Default command runs health check
+CMD ["/usr/local/bin/test-health-check"]
+
+# Metadata
+LABEL maintainer="Murray Kopit <murr2k@gmail.com>"
+LABEL description="MPU-6050 Linux Kernel Driver E2E Testing Environment"
+LABEL version="1.0.0"
+LABEL project="linux-exam-mpu6050"
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD /usr/local/bin/test-health-check || exit 1

@@ -1,0 +1,361 @@
+name: Docker E2E Tests
+
+# Trigger the workflow
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'drivers/**'
+      - 'tests/**'
+      - 'include/**'
+      - 'Makefile'
+      - '.github/workflows/docker-e2e-tests.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'drivers/**'
+      - 'tests/**'
+      - 'include/**'
+      - 'Makefile'
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Test mode to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - c-tests-only
+          - python-tests-only
+          - performance-only
+      enable_dashboard:
+        description: 'Enable Grafana dashboard'
+        required: false
+        default: false
+        type: boolean
+
+# Environment variables
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+  TEST_RESULTS_PATH: tests/e2e/docker/test-results
+  TEST_LOGS_PATH: tests/e2e/docker/test-logs
+
+# Jobs
+jobs:
+  # Pre-checks and validation
+  validate-environment:
+    name: Validate Environment
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    
+    outputs:
+      docker-changed: ${{ steps.changes.outputs.docker }}
+      tests-changed: ${{ steps.changes.outputs.tests }}
+      drivers-changed: ${{ steps.changes.outputs.drivers }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      
+      - name: Detect changes
+        uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            docker:
+              - 'tests/e2e/docker/**'
+              - '.github/workflows/docker-e2e-tests.yml'
+            tests:
+              - 'tests/**'
+            drivers:
+              - 'drivers/**'
+              - 'include/**'
+              - 'Makefile'
+      
+      - name: Validate Docker environment
+        run: |
+          cd tests/e2e/docker
+          ./test-docker-env.sh
+  
+  # Main E2E testing job
+  docker-e2e-tests:
+    name: Docker E2E Tests
+    runs-on: ubuntu-22.04
+    needs: validate-environment
+    timeout-minutes: 30
+    
+    strategy:
+      matrix:
+        test-config:
+          - name: "C Tests"
+            args: "--c-tests-only"
+            coverage: true
+          - name: "Python Tests"
+            args: "--python-tests-only"
+            coverage: true
+          - name: "Performance Tests"
+            args: "--performance-only"
+            coverage: false
+      
+      # Allow some tests to fail without stopping others
+      fail-fast: false
+    
+    env:
+      CI: true
+      GITHUB_ACTIONS: true
+      TEST_VERBOSE: true
+      TEST_TIMEOUT: 180
+      SIMULATE_HARDWARE: true
+      COVERAGE_ENABLED: ${{ matrix.test-config.coverage }}
+      PERF_TEST_ENABLED: true
+      BUILD_NUMBER: ${{ github.run_number }}
+      GIT_COMMIT: ${{ github.sha }}
+      GIT_BRANCH: ${{ github.ref_name }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: network=host
+      
+      - name: Cache Docker layers
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+      
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          docker system prune -f
+          df -h
+      
+      - name: Run Docker E2E Tests - ${{ matrix.test-config.name }}
+        run: |
+          cd tests/e2e/docker
+          ./run_e2e_docker.sh ${{ matrix.test-config.args }}
+        
+        # Continue on error to collect artifacts
+        continue-on-error: true
+        id: tests
+      
+      - name: Collect test artifacts
+        if: always()
+        run: |
+          cd tests/e2e/docker
+          
+          # Create artifact directory
+          mkdir -p artifacts/${{ matrix.test-config.name }}
+          
+          # Copy results and logs
+          cp -r test-results/* artifacts/${{ matrix.test-config.name }}/ 2>/dev/null || true
+          cp -r test-logs/* artifacts/${{ matrix.test-config.name }}/ 2>/dev/null || true
+          
+          # Create summary
+          echo "## Test Results Summary - ${{ matrix.test-config.name }}" > artifacts/${{ matrix.test-config.name }}/SUMMARY.md
+          echo "" >> artifacts/${{ matrix.test-config.name }}/SUMMARY.md
+          echo "- **Test Configuration**: ${{ matrix.test-config.name }}" >> artifacts/${{ matrix.test-config.name }}/SUMMARY.md
+          echo "- **Arguments**: ${{ matrix.test-config.args }}" >> artifacts/${{ matrix.test-config.name }}/SUMMARY.md
+          echo "- **Coverage Enabled**: ${{ matrix.test-config.coverage }}" >> artifacts/${{ matrix.test-config.name }}/SUMMARY.md
+          echo "- **Build Number**: ${{ github.run_number }}" >> artifacts/${{ matrix.test-config.name }}/SUMMARY.md
+          echo "- **Commit**: ${{ github.sha }}" >> artifacts/${{ matrix.test-config.name }}/SUMMARY.md
+          echo "- **Branch**: ${{ github.ref_name }}" >> artifacts/${{ matrix.test-config.name }}/SUMMARY.md
+          
+          # Add test status
+          if [ "${{ steps.tests.outcome }}" = "success" ]; then
+            echo "- **Status**: ✅ PASSED" >> artifacts/${{ matrix.test-config.name }}/SUMMARY.md
+          else
+            echo "- **Status**: ❌ FAILED" >> artifacts/${{ matrix.test-config.name }}/SUMMARY.md
+          fi
+          
+          # List artifacts
+          echo "" >> artifacts/${{ matrix.test-config.name }}/SUMMARY.md
+          echo "### Available Artifacts" >> artifacts/${{ matrix.test-config.name }}/SUMMARY.md
+          find artifacts/${{ matrix.test-config.name }} -type f -name "*.log" -o -name "*.xml" -o -name "*.json" -o -name "*.html" | sed 's/^/- /' >> artifacts/${{ matrix.test-config.name }}/SUMMARY.md
+      
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results-${{ matrix.test-config.name }}-${{ github.run_number }}
+          path: tests/e2e/docker/artifacts/${{ matrix.test-config.name }}/
+          retention-days: 30
+          if-no-files-found: warn
+      
+      - name: Upload coverage to Codecov
+        if: matrix.test-config.coverage && always()
+        uses: codecov/codecov-action@v3
+        with:
+          file: ${{ env.TEST_RESULTS_PATH }}/coverage.xml
+          flags: e2e-tests,${{ matrix.test-config.name }}
+          name: codecov-${{ matrix.test-config.name }}
+          fail_ci_if_error: false
+      
+      - name: Check test results
+        if: steps.tests.outcome != 'success'
+        run: |
+          echo "Tests failed for configuration: ${{ matrix.test-config.name }}"
+          echo "Check the artifacts for detailed logs and results."
+          exit 1
+  
+  # Docker Compose integration test (optional)
+  docker-compose-tests:
+    name: Docker Compose Integration
+    runs-on: ubuntu-22.04
+    needs: validate-environment
+    if: github.event.inputs.enable_dashboard == 'true' || contains(github.event.head_commit.message, '[dashboard]')
+    timeout-minutes: 20
+    
+    env:
+      CI: true
+      GITHUB_ACTIONS: true
+      TEST_VERBOSE: false
+      TEST_TIMEOUT: 120
+      SIMULATE_HARDWARE: true
+      COVERAGE_ENABLED: false
+      PERF_TEST_ENABLED: false
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Run Docker Compose tests
+        run: |
+          cd tests/e2e/docker
+          ./run_e2e_docker.sh --use-compose --c-tests-only
+      
+      - name: Check service health
+        run: |
+          cd tests/e2e/docker
+          
+          # Check if services are healthy
+          docker-compose ps
+          
+          # Test database connection
+          docker-compose exec -T test-database pg_isready -U testuser -d mpu6050_test_results
+      
+      - name: Collect compose logs
+        if: always()
+        run: |
+          cd tests/e2e/docker
+          docker-compose logs > compose-logs.txt 2>&1 || true
+      
+      - name: Upload compose artifacts
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: docker-compose-logs-${{ github.run_number }}
+          path: tests/e2e/docker/compose-logs.txt
+          retention-days: 7
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          cd tests/e2e/docker
+          docker-compose down -v --remove-orphans
+  
+  # Results summary job
+  test-summary:
+    name: Test Results Summary
+    runs-on: ubuntu-22.04
+    needs: [docker-e2e-tests]
+    if: always()
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: test-artifacts
+      
+      - name: Generate summary report
+        run: |
+          echo "# MPU-6050 Docker E2E Test Results" > test-summary.md
+          echo "" >> test-summary.md
+          echo "**Build**: ${{ github.run_number }}" >> test-summary.md
+          echo "**Commit**: ${{ github.sha }}" >> test-summary.md
+          echo "**Branch**: ${{ github.ref_name }}" >> test-summary.md
+          echo "**Triggered by**: ${{ github.actor }}" >> test-summary.md
+          echo "" >> test-summary.md
+          echo "## Test Configuration Matrix Results" >> test-summary.md
+          echo "" >> test-summary.md
+          
+          # Process each test configuration
+          for dir in test-artifacts/test-results-*; do
+            if [ -d "$dir" ]; then
+              config_name=$(basename "$dir" | sed 's/test-results-//' | sed 's/-[0-9]*$//')
+              echo "### $config_name" >> test-summary.md
+              
+              if [ -f "$dir/SUMMARY.md" ]; then
+                cat "$dir/SUMMARY.md" >> test-summary.md
+              else
+                echo "- No summary available" >> test-summary.md
+              fi
+              echo "" >> test-summary.md
+            fi
+          done
+          
+          # Show the summary
+          cat test-summary.md
+      
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('test-summary.md', 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
+      
+      - name: Upload summary
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-summary-${{ github.run_number }}
+          path: test-summary.md
+          retention-days: 30
+      
+      - name: Check overall results
+        run: |
+          # Check if any tests failed
+          if [ "${{ needs.docker-e2e-tests.result }}" != "success" ]; then
+            echo "❌ Some E2E tests failed"
+            echo "Check individual test artifacts for details"
+            exit 1
+          else
+            echo "✅ All E2E tests passed"
+          fi
+
+# Cleanup job
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-22.04
+    needs: [docker-e2e-tests, docker-compose-tests, test-summary]
+    if: always()
+    
+    steps:
+      - name: Cleanup Docker resources
+        run: |
+          # Remove dangling images and containers
+          docker system prune -f
+          
+          # Show remaining disk usage
+          df -h

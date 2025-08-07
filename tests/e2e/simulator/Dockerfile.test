@@ -1,0 +1,19 @@
+# Docker test for MPU-6050 I2C Simulator
+FROM ubuntu:20.04
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    make \
+    libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy source files
+WORKDIR /app
+COPY . .
+
+# Build the simulator
+RUN make clean && make all
+
+# Run tests
+CMD ["./simulator_test", "-q"]

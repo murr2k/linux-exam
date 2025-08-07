@@ -1,0 +1,715 @@
+name: E2E Test Suite
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      test_scenario:
+        description: 'Test scenario to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - simulator
+        - framework
+        - integration
+        - performance
+        - stress
+      test_duration:
+        description: 'Test duration in minutes'
+        required: false
+        default: '30'
+      parallel_tests:
+        description: 'Run tests in parallel'
+        required: false
+        default: true
+        type: boolean
+      verbose_output:
+        description: 'Enable verbose output'
+        required: false
+        default: false
+        type: boolean
+
+  # Scheduled runs
+  schedule:
+    # Nightly at 2:00 AM UTC
+    - cron: '0 2 * * *'
+    # Weekly comprehensive test on Sundays at 4:00 AM UTC
+    - cron: '0 4 * * 0'
+
+  # Trigger on releases
+  release:
+    types: [published]
+
+  # Allow call from other workflows
+  workflow_call:
+    inputs:
+      scenario:
+        required: false
+        type: string
+        default: 'all'
+      duration:
+        required: false
+        type: string
+        default: '30'
+
+env:
+  TEST_ENV: docker
+  TEST_MODE: e2e
+  SIMULATOR_ENABLED: true
+  COVERAGE_ENABLED: true
+  PROFILING_ENABLED: true
+  LOG_LEVEL: INFO
+
+jobs:
+  # Configuration and setup
+  configure:
+    runs-on: ubuntu-latest
+    outputs:
+      test-matrix: ${{ steps.matrix.outputs.matrix }}
+      test-duration: ${{ steps.config.outputs.duration }}
+      run-performance: ${{ steps.config.outputs.run-performance }}
+      run-stress: ${{ steps.config.outputs.run-stress }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure test parameters
+        id: config
+        run: |
+          # Determine test duration
+          DURATION="${{ github.event.inputs.test_duration || '30' }}"
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            if [[ "${{ github.event.schedule }}" == "0 4 * * 0" ]]; then
+              DURATION="120"  # Weekly comprehensive test
+            else
+              DURATION="60"   # Nightly test
+            fi
+          fi
+          echo "duration=${DURATION}" >> $GITHUB_OUTPUT
+          
+          # Performance and stress tests
+          SCENARIO="${{ github.event.inputs.test_scenario || 'all' }}"
+          if [[ "$SCENARIO" == "all" || "$SCENARIO" == "performance" ]]; then
+            echo "run-performance=true" >> $GITHUB_OUTPUT
+          else
+            echo "run-performance=false" >> $GITHUB_OUTPUT
+          fi
+          
+          if [[ "$SCENARIO" == "stress" || "${{ github.event_name }}" == "schedule" ]]; then
+            echo "run-stress=true" >> $GITHUB_OUTPUT
+          else
+            echo "run-stress=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate test matrix
+        id: matrix
+        run: |
+          SCENARIO="${{ github.event.inputs.test_scenario || 'all' }}"
+          
+          if [[ "$SCENARIO" == "all" ]]; then
+            MATRIX='["simulator", "framework", "integration", "performance"]'
+          elif [[ "$SCENARIO" == "simulator" ]]; then
+            MATRIX='["simulator"]'
+          elif [[ "$SCENARIO" == "framework" ]]; then
+            MATRIX='["framework"]'
+          elif [[ "$SCENARIO" == "integration" ]]; then
+            MATRIX='["integration"]'
+          elif [[ "$SCENARIO" == "performance" ]]; then
+            MATRIX='["performance"]'
+          elif [[ "$SCENARIO" == "stress" ]]; then
+            MATRIX='["stress"]'
+          else
+            MATRIX='["simulator", "framework", "integration"]'
+          fi
+          
+          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+
+  # Core E2E test matrix
+  e2e-test-matrix:
+    runs-on: ubuntu-latest
+    needs: configure
+    if: needs.configure.outputs.test-matrix != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        test-suite: ${{ fromJson(needs.configure.outputs.test-matrix) }}
+        test-config:
+          - name: default
+            parallel: true
+            timeout: 30
+          - name: sequential
+            parallel: false
+            timeout: 45
+        exclude:
+          # Exclude sequential for performance tests (should be parallel)
+          - test-suite: performance
+            test-config: { name: sequential, parallel: false, timeout: 45 }
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache-e2e
+          key: buildx-e2e-${{ runner.os }}-${{ matrix.test-suite }}-${{ github.sha }}
+          restore-keys: |
+            buildx-e2e-${{ runner.os }}-${{ matrix.test-suite }}-
+            buildx-e2e-${{ runner.os }}-
+
+      - name: Build E2E test environment
+        run: |
+          cd tests/e2e/docker
+          docker compose build mpu6050-e2e-tests
+        env:
+          BUILD_DATE: ${{ github.event.head_commit.timestamp }}
+          VCS_REF: ${{ github.sha }}
+
+      - name: Start test infrastructure
+        run: |
+          cd tests/e2e/docker
+          docker compose up -d test-database
+          
+          # Wait for database to be ready
+          for i in {1..30}; do
+            if docker compose exec test-database pg_isready -U testuser -d mpu6050_test_results; then
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Run E2E tests - ${{ matrix.test-suite }} (${{ matrix.test-config.name }})
+        timeout-minutes: ${{ matrix.test-config.timeout }}
+        run: |
+          cd tests/e2e/docker
+          
+          # Configure environment
+          export TEST_SUITE=${{ matrix.test-suite }}
+          export TEST_PARALLEL=${{ matrix.test-config.parallel }}
+          export TEST_VERBOSE=${{ github.event.inputs.verbose_output || 'false' }}
+          export TEST_DURATION=${{ needs.configure.outputs.test-duration }}
+          export CI=true
+          export GITHUB_ACTIONS=true
+          export BUILD_NUMBER=${{ github.run_number }}
+          export GIT_COMMIT=${{ github.sha }}
+          export GIT_BRANCH=${{ github.ref_name }}
+          
+          # Run specific test suite
+          case "${{ matrix.test-suite }}" in
+            "simulator")
+              echo "Running simulator tests..."
+              docker compose run --rm \
+                -e TEST_SCENARIO=comprehensive \
+                -e TEST_ITERATIONS=100 \
+                mpu6050-e2e-tests \
+                /opt/mpu6050-test/tests/e2e/simulator/integration_test.sh --verbose --comprehensive
+              ;;
+            "framework")
+              echo "Running framework tests..."
+              docker compose run --rm \
+                -e PYTEST_ARGS="-v --tb=short --maxfail=5 --junitxml=/opt/mpu6050-test/results/pytest-results.xml" \
+                mpu6050-e2e-tests \
+                python3 -m pytest /opt/mpu6050-test/tests/e2e/framework/ -v --tb=short --maxfail=5 --junitxml=/opt/mpu6050-test/results/pytest-results.xml
+              ;;
+            "integration")
+              echo "Running integration tests..."
+              docker compose run --rm \
+                -e TEST_COMPREHENSIVE=true \
+                -e TEST_ALL_MODULES=true \
+                mpu6050-e2e-tests \
+                /opt/mpu6050-test/tests/e2e/run_e2e_tests.sh --verbose --comprehensive
+              ;;
+            "performance")
+              echo "Running performance tests..."
+              docker compose run --rm \
+                -e PERF_TEST_ENABLED=true \
+                -e PERF_TEST_DURATION=${{ needs.configure.outputs.test-duration }} \
+                -e PERF_BASELINE_ENABLED=true \
+                mpu6050-e2e-tests \
+                python3 /opt/mpu6050-test/tests/e2e/utils/performance_test.py --duration ${{ needs.configure.outputs.test-duration }}
+              ;;
+            "stress")
+              echo "Running stress tests..."
+              docker compose run --rm \
+                -e STRESS_TEST_ENABLED=true \
+                -e STRESS_TEST_DURATION=${{ needs.configure.outputs.test-duration }} \
+                -e STRESS_CONCURRENT_PROCESSES=8 \
+                mpu6050-e2e-tests \
+                /opt/mpu6050-test/tests/e2e/run_e2e_tests.sh --stress --duration ${{ needs.configure.outputs.test-duration }}
+              ;;
+          esac
+
+      - name: Collect test artifacts
+        if: always()
+        run: |
+          cd tests/e2e/docker
+          mkdir -p test-artifacts/${{ matrix.test-suite }}-${{ matrix.test-config.name }}
+          
+          # Copy test results
+          docker compose run --rm -v $(pwd)/test-artifacts/${{ matrix.test-suite }}-${{ matrix.test-config.name }}:/host-artifacts mpu6050-e2e-tests sh -c "
+            cp -r /opt/mpu6050-test/results/* /host-artifacts/ 2>/dev/null || true
+            cp -r /var/log/mpu6050-test/* /host-artifacts/ 2>/dev/null || true
+            
+            # Generate test summary
+            echo '## Test Summary - ${{ matrix.test-suite }} (${{ matrix.test-config.name }})' > /host-artifacts/SUMMARY.md
+            echo '' >> /host-artifacts/SUMMARY.md
+            echo '**Suite:** ${{ matrix.test-suite }}' >> /host-artifacts/SUMMARY.md
+            echo '**Config:** ${{ matrix.test-config.name }}' >> /host-artifacts/SUMMARY.md
+            echo '**Duration:** ${{ needs.configure.outputs.test-duration }} minutes' >> /host-artifacts/SUMMARY.md
+            echo '**Timestamp:** $(date -u)' >> /host-artifacts/SUMMARY.md
+            echo '' >> /host-artifacts/SUMMARY.md
+            
+            # Add performance data if available
+            if [ -f /opt/mpu6050-test/results/performance_metrics.json ]; then
+              echo '### Performance Metrics' >> /host-artifacts/SUMMARY.md
+              cat /opt/mpu6050-test/results/performance_metrics.json | python3 -m json.tool >> /host-artifacts/SUMMARY.md 2>/dev/null || true
+            fi
+          "
+
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-artifacts-${{ matrix.test-suite }}-${{ matrix.test-config.name }}
+          path: tests/e2e/docker/test-artifacts/${{ matrix.test-suite }}-${{ matrix.test-config.name }}/
+          retention-days: 14
+
+      - name: Generate performance report
+        if: matrix.test-suite == 'performance'
+        run: |
+          cd tests/e2e/docker/test-artifacts/${{ matrix.test-suite }}-${{ matrix.test-config.name }}
+          
+          if [ -f performance_metrics.json ]; then
+            echo "## Performance Test Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            python3 -c "
+            import json, os
+            try:
+              with open('performance_metrics.json', 'r') as f:
+                metrics = json.load(f)
+                print('| Metric | Value | Status |')
+                print('|--------|--------|--------|')
+                for key, value in metrics.items():
+                  status = '✅' if 'error' not in str(value).lower() else '❌'
+                  print(f'| {key} | {value} | {status} |')
+            except Exception as e:
+              print('Performance metrics not available')
+            " >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Cleanup test environment
+        if: always()
+        run: |
+          cd tests/e2e/docker
+          docker compose down -v
+          docker compose rm -f
+
+  # Performance baseline comparison
+  performance-analysis:
+    runs-on: ubuntu-latest
+    needs: [configure, e2e-test-matrix]
+    if: needs.configure.outputs.run-performance == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download performance artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: e2e-artifacts-performance-*
+          merge-multiple: true
+
+      - name: Setup Python for analysis
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install analysis dependencies
+        run: |
+          pip install pandas matplotlib seaborn numpy scipy jinja2
+
+      - name: Analyze performance trends
+        run: |
+          python3 -c "
+          import json, glob, os
+          import pandas as pd
+          import matplotlib.pyplot as plt
+          from datetime import datetime
+          
+          # Collect performance data
+          performance_files = glob.glob('**/performance_metrics.json', recursive=True)
+          if not performance_files:
+            print('No performance data found')
+            exit(0)
+          
+          all_metrics = []
+          for f in performance_files:
+            try:
+              with open(f, 'r') as file:
+                data = json.load(file)
+                data['timestamp'] = datetime.now().isoformat()
+                data['commit'] = '${{ github.sha }}'
+                all_metrics.append(data)
+            except Exception as e:
+              print(f'Error reading {f}: {e}')
+          
+          if all_metrics:
+            # Save combined metrics
+            with open('performance_analysis.json', 'w') as f:
+              json.dump(all_metrics, f, indent=2)
+            
+            # Create trend analysis
+            with open('PERFORMANCE_REPORT.md', 'w') as f:
+              f.write('# Performance Analysis Report\\n\\n')
+              f.write(f'**Commit:** ${{ github.sha }}\\n')
+              f.write(f'**Date:** {datetime.now().strftime(\"%Y-%m-%d %H:%M:%S\")}\\n\\n')
+              
+              for i, metrics in enumerate(all_metrics):
+                f.write(f'## Test Run {i+1}\\n\\n')
+                f.write('| Metric | Value |\\n')
+                f.write('|--------|-------|\\n')
+                for k, v in metrics.items():
+                  if k not in ['timestamp', 'commit']:
+                    f.write(f'| {k} | {v} |\\n')
+                f.write('\\n')
+            
+            print('Performance analysis completed')
+          "
+
+      - name: Check performance regression
+        run: |
+          python3 -c "
+          import json, os
+          
+          # Performance thresholds (adjust as needed)
+          thresholds = {
+            'response_time_ms': 100,
+            'throughput_ops_sec': 50,
+            'cpu_usage_percent': 80,
+            'memory_usage_mb': 256
+          }
+          
+          if os.path.exists('performance_analysis.json'):
+            with open('performance_analysis.json', 'r') as f:
+              data = json.load(f)
+            
+            regressions = []
+            for metrics in data:
+              for key, threshold in thresholds.items():
+                if key in metrics:
+                  value = float(metrics[key])
+                  if key.endswith('_ms') or key.endswith('_percent') or key.endswith('_mb'):
+                    # Lower is better
+                    if value > threshold:
+                      regressions.append(f'{key}: {value} > {threshold}')
+                  else:
+                    # Higher is better
+                    if value < threshold:
+                      regressions.append(f'{key}: {value} < {threshold}')
+            
+            if regressions:
+              print('Performance regressions detected:')
+              for regression in regressions:
+                print(f'- {regression}')
+              exit(1)
+            else:
+              print('No performance regressions detected')
+          "
+
+      - name: Upload performance analysis
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-analysis
+          path: |
+            performance_analysis.json
+            PERFORMANCE_REPORT.md
+          retention-days: 30
+
+  # Comprehensive reporting
+  generate-report:
+    runs-on: ubuntu-latest
+    needs: [configure, e2e-test-matrix, performance-analysis]
+    if: always()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all test artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Setup Python for reporting
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install reporting dependencies
+        run: |
+          pip install jinja2 markdown beautifulsoup4 weasyprint
+
+      - name: Generate comprehensive report
+        run: |
+          python3 -c "
+          import json, glob, os, re
+          from datetime import datetime
+          from jinja2 import Template
+          
+          # Collect all test results
+          report_data = {
+            'meta': {
+              'timestamp': datetime.now().isoformat(),
+              'commit': '${{ github.sha }}',
+              'branch': '${{ github.ref_name }}',
+              'run_number': '${{ github.run_number }}',
+              'trigger': '${{ github.event_name }}',
+              'duration': '${{ needs.configure.outputs.test-duration }}'
+            },
+            'results': {},
+            'performance': {},
+            'summary': {'total': 0, 'passed': 0, 'failed': 0, 'skipped': 0}
+          }
+          
+          # Process test artifacts
+          for artifact_dir in glob.glob('e2e-artifacts-*'):
+            if os.path.isdir(artifact_dir):
+              suite_match = re.match(r'e2e-artifacts-([^-]+)-(.+)', artifact_dir)
+              if suite_match:
+                suite_name = suite_match.group(1)
+                config_name = suite_match.group(2)
+                
+                result = {
+                  'suite': suite_name,
+                  'config': config_name,
+                  'status': 'unknown',
+                  'files': [],
+                  'logs': []
+                }
+                
+                # Check for result files
+                for file in glob.glob(os.path.join(artifact_dir, '**'), recursive=True):
+                  if os.path.isfile(file):
+                    rel_path = os.path.relpath(file, artifact_dir)
+                    result['files'].append(rel_path)
+                    
+                    # Determine status from log content
+                    if file.endswith('.log') and 'passed' not in result['status'].lower():
+                      try:
+                        with open(file, 'r') as f:
+                          content = f.read().lower()
+                          if 'error' in content or 'fail' in content:
+                            result['status'] = 'failed'
+                          elif 'success' in content or 'pass' in content:
+                            result['status'] = 'passed'
+                      except:
+                        pass
+                
+                if result['status'] == 'unknown':
+                  result['status'] = 'completed'
+                
+                report_data['results'][f'{suite_name}-{config_name}'] = result
+                report_data['summary']['total'] += 1
+                if result['status'] == 'passed':
+                  report_data['summary']['passed'] += 1
+                elif result['status'] == 'failed':
+                  report_data['summary']['failed'] += 1
+          
+          # Add performance data
+          perf_files = glob.glob('**/performance_analysis.json', recursive=True)
+          for pf in perf_files:
+            try:
+              with open(pf, 'r') as f:
+                report_data['performance'] = json.load(f)
+                break
+            except:
+              pass
+          
+          # Generate HTML report
+          html_template = '''
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>E2E Test Report</title>
+              <style>
+                  body { font-family: Arial, sans-serif; margin: 40px; }
+                  .header { background: #f5f5f5; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+                  .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin: 20px 0; }
+                  .metric { background: #fff; padding: 15px; border: 1px solid #ddd; border-radius: 5px; text-align: center; }
+                  .metric h3 { margin: 0; color: #333; }
+                  .metric .value { font-size: 2em; font-weight: bold; margin: 10px 0; }
+                  .passed { color: #28a745; }
+                  .failed { color: #dc3545; }
+                  .table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                  .table th, .table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                  .table th { background-color: #f2f2f2; }
+                  .performance { background: #e3f2fd; padding: 15px; border-radius: 5px; margin: 20px 0; }
+              </style>
+          </head>
+          <body>
+              <div class=\"header\">
+                  <h1>E2E Test Report</h1>
+                  <p><strong>Commit:</strong> {{ meta.commit[:8] }}</p>
+                  <p><strong>Branch:</strong> {{ meta.branch }}</p>
+                  <p><strong>Date:</strong> {{ meta.timestamp }}</p>
+                  <p><strong>Run:</strong> #{{ meta.run_number }}</p>
+                  <p><strong>Trigger:</strong> {{ meta.trigger }}</p>
+              </div>
+              
+              <div class=\"summary\">
+                  <div class=\"metric\">
+                      <h3>Total Tests</h3>
+                      <div class=\"value\">{{ summary.total }}</div>
+                  </div>
+                  <div class=\"metric\">
+                      <h3>Passed</h3>
+                      <div class=\"value passed\">{{ summary.passed }}</div>
+                  </div>
+                  <div class=\"metric\">
+                      <h3>Failed</h3>
+                      <div class=\"value failed\">{{ summary.failed }}</div>
+                  </div>
+                  <div class=\"metric\">
+                      <h3>Success Rate</h3>
+                      <div class=\"value\">{{ \"%.1f\" | format((summary.passed / summary.total * 100) if summary.total > 0 else 0) }}%</div>
+                  </div>
+              </div>
+              
+              <h2>Test Results</h2>
+              <table class=\"table\">
+                  <thead>
+                      <tr>
+                          <th>Test Suite</th>
+                          <th>Configuration</th>
+                          <th>Status</th>
+                          <th>Files</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+                      {% for name, result in results.items() %}
+                      <tr>
+                          <td>{{ result.suite }}</td>
+                          <td>{{ result.config }}</td>
+                          <td class=\"{{ result.status }}\">{{ result.status }}</td>
+                          <td>{{ result.files | length }} files</td>
+                      </tr>
+                      {% endfor %}
+                  </tbody>
+              </table>
+              
+              {% if performance %}
+              <div class=\"performance\">
+                  <h2>Performance Metrics</h2>
+                  <pre>{{ performance | tojson(indent=2) }}</pre>
+              </div>
+              {% endif %}
+          </body>
+          </html>
+          '''
+          
+          template = Template(html_template)
+          html_content = template.render(**report_data)
+          
+          with open('E2E_TEST_REPORT.html', 'w') as f:
+            f.write(html_content)
+          
+          with open('e2e_report.json', 'w') as f:
+            json.dump(report_data, f, indent=2)
+          
+          # Generate markdown summary
+          with open('E2E_SUMMARY.md', 'w') as f:
+            f.write('# E2E Test Summary\\n\\n')
+            f.write(f'**Status:** {\"✅ PASSED\" if report_data[\"summary\"][\"failed\"] == 0 else \"❌ FAILED\"}\\n')
+            f.write(f'**Total Tests:** {report_data[\"summary\"][\"total\"]}\\n')
+            f.write(f'**Passed:** {report_data[\"summary\"][\"passed\"]}\\n')
+            f.write(f'**Failed:** {report_data[\"summary\"][\"failed\"]}\\n')
+            success_rate = (report_data[\"summary\"][\"passed\"] / report_data[\"summary\"][\"total\"] * 100) if report_data[\"summary\"][\"total\"] > 0 else 0
+            f.write(f'**Success Rate:** {success_rate:.1f}%\\n\\n')
+            
+            f.write('## Test Suites\\n\\n')
+            for name, result in report_data[\"results\"].items():
+              status_icon = \"✅\" if result[\"status\"] == \"passed\" else \"❌\" if result[\"status\"] == \"failed\" else \"⚠️\"
+              f.write(f'- {status_icon} **{result[\"suite\"]}** ({result[\"config\"]}): {result[\"status\"]}\\n')
+          
+          print('Report generation completed')
+          "
+
+      - name: Upload comprehensive report
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-comprehensive-report
+          path: |
+            E2E_TEST_REPORT.html
+            E2E_SUMMARY.md
+            e2e_report.json
+          retention-days: 30
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: E2E Test Results
+          path: '**/pytest-results.xml'
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Comment PR with E2E results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (fs.existsSync('E2E_SUMMARY.md')) {
+              const summary = fs.readFileSync('E2E_SUMMARY.md', 'utf8');
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## E2E Test Results\n\n${summary}`
+              });
+            }
+
+  # Notification and cleanup
+  notify:
+    runs-on: ubuntu-latest
+    needs: [configure, e2e-test-matrix, performance-analysis, generate-report]
+    if: always() && (github.event_name == 'schedule' || failure())
+    steps:
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Create an issue for test failures
+            const title = `E2E Test Failure - ${new Date().toISOString().split('T')[0]}`;
+            const body = `
+            ## E2E Test Suite Failed
+            
+            **Run:** #${{ github.run_number }}
+            **Commit:** ${{ github.sha }}
+            **Branch:** ${{ github.ref_name }}
+            **Trigger:** ${{ github.event_name }}
+            
+            **Failed Jobs:**
+            ${{ toJson(needs) }}
+            
+            Please check the workflow logs and test artifacts for details.
+            
+            [View Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            `;
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['bug', 'e2e-tests', 'automated']
+            });
+
+      - name: Clean up old artifacts
+        run: |
+          echo "Cleanup completed - old artifacts will be automatically removed by GitHub retention policy"

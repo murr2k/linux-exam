@@ -1,0 +1,810 @@
+name: Performance Monitoring
+
+on:
+  # Run on pushes to main for baseline tracking
+  push:
+    branches: [main]
+    paths:
+      - 'drivers/**'
+      - 'tests/**'
+      - 'include/**'
+      - 'Makefile'
+
+  # Run on PRs for regression detection
+  pull_request:
+    branches: [main]
+    paths:
+      - 'drivers/**'
+      - 'tests/**'
+      - 'include/**'
+      - 'Makefile'
+
+  # Scheduled performance monitoring
+  schedule:
+    # Daily at 6:00 AM UTC
+    - cron: '0 6 * * *'
+    # Weekly comprehensive analysis on Saturdays at 8:00 AM UTC
+    - cron: '0 8 * * 6'
+
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      baseline_commit:
+        description: 'Commit SHA for baseline comparison (default: main)'
+        required: false
+        default: 'main'
+      test_iterations:
+        description: 'Number of test iterations'
+        required: false
+        default: '50'
+        type: choice
+        options: ['10', '25', '50', '100', '200']
+      performance_profile:
+        description: 'Performance testing profile'
+        required: false
+        default: 'standard'
+        type: choice
+        options: ['quick', 'standard', 'comprehensive', 'stress']
+
+env:
+  PERF_DATA_DIR: .github/performance-data
+  BASELINE_RETENTION_DAYS: 90
+  REGRESSION_THRESHOLD: 20  # Percentage
+
+jobs:
+  # Setup and configuration
+  setup-performance:
+    runs-on: ubuntu-latest
+    outputs:
+      baseline-ref: ${{ steps.baseline.outputs.ref }}
+      test-iterations: ${{ steps.config.outputs.iterations }}
+      test-profile: ${{ steps.config.outputs.profile }}
+      should-compare: ${{ steps.config.outputs.should-compare }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for baseline comparison
+
+      - name: Determine baseline
+        id: baseline
+        run: |
+          if [[ "${{ github.event.inputs.baseline_commit }}" != "" ]]; then
+            BASELINE="${{ github.event.inputs.baseline_commit }}"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASELINE="${{ github.base_ref }}"
+          else
+            BASELINE="main"
+          fi
+          echo "ref=$BASELINE" >> $GITHUB_OUTPUT
+          echo "Selected baseline: $BASELINE"
+
+      - name: Configure test parameters
+        id: config
+        run: |
+          # Test iterations
+          if [[ "${{ github.event.inputs.test_iterations }}" != "" ]]; then
+            ITERATIONS="${{ github.event.inputs.test_iterations }}"
+          elif [[ "${{ github.event_name }}" == "schedule" ]]; then
+            ITERATIONS="100"
+          else
+            ITERATIONS="50"
+          fi
+          echo "iterations=$ITERATIONS" >> $GITHUB_OUTPUT
+          
+          # Test profile
+          if [[ "${{ github.event.inputs.performance_profile }}" != "" ]]; then
+            PROFILE="${{ github.event.inputs.performance_profile }}"
+          elif [[ "${{ github.event_name }}" == "schedule" ]]; then
+            PROFILE="comprehensive"
+          else
+            PROFILE="standard"
+          fi
+          echo "profile=$PROFILE" >> $GITHUB_OUTPUT
+          
+          # Comparison flag
+          if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.event.inputs.baseline_commit }}" != "" ]]; then
+            echo "should-compare=true" >> $GITHUB_OUTPUT
+          else
+            echo "should-compare=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Current version performance testing
+  current-performance:
+    runs-on: ubuntu-latest
+    needs: setup-performance
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache-perf
+          key: buildx-perf-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            buildx-perf-${{ runner.os }}-
+
+      - name: Build performance test environment
+        run: |
+          cd tests/e2e/docker
+          docker compose build mpu6050-e2e-tests
+        env:
+          BUILD_DATE: ${{ github.event.head_commit.timestamp }}
+          VCS_REF: ${{ github.sha }}
+
+      - name: Run performance benchmarks
+        timeout-minutes: 60
+        run: |
+          cd tests/e2e/docker
+          
+          # Configure performance testing environment
+          export PERF_TEST_ENABLED=true
+          export PERF_TEST_ITERATIONS=${{ needs.setup-performance.outputs.test-iterations }}
+          export PERF_TEST_PROFILE=${{ needs.setup-performance.outputs.test-profile }}
+          export PERF_DETAILED_METRICS=true
+          export PERF_CPU_PROFILING=true
+          export PERF_MEMORY_PROFILING=true
+          export TEST_ENV=performance
+          export CI=true
+          
+          # Start infrastructure
+          docker compose up -d test-database
+          
+          # Wait for database
+          for i in {1..30}; do
+            if docker compose exec test-database pg_isready -U testuser -d mpu6050_test_results; then
+              break
+            fi
+            sleep 2
+          done
+          
+          echo "Running performance benchmarks..."
+          docker compose run --rm \
+            -e PERF_TEST_ENABLED=true \
+            -e PERF_TEST_ITERATIONS=${{ needs.setup-performance.outputs.test-iterations }} \
+            -e PERF_TEST_PROFILE=${{ needs.setup-performance.outputs.test-profile }} \
+            -e PERF_DETAILED_METRICS=true \
+            -e PERF_OUTPUT_FORMAT=json \
+            -e PERF_TIMESTAMP="$(date -u +%Y%m%d_%H%M%S)" \
+            mpu6050-e2e-tests \
+            python3 /opt/mpu6050-test/tests/e2e/utils/performance_test.py \
+              --profile ${{ needs.setup-performance.outputs.test-profile }} \
+              --iterations ${{ needs.setup-performance.outputs.test-iterations }} \
+              --output-json /opt/mpu6050-test/results/perf_current.json \
+              --detailed \
+              --cpu-profile \
+              --memory-profile
+
+      - name: Collect performance data
+        if: always()
+        run: |
+          cd tests/e2e/docker
+          mkdir -p perf-results/current
+          
+          # Extract performance data from container
+          docker compose run --rm \
+            -v $(pwd)/perf-results/current:/host-results \
+            mpu6050-e2e-tests \
+            sh -c "
+              cp /opt/mpu6050-test/results/perf_current.json /host-results/ 2>/dev/null || true
+              cp /opt/mpu6050-test/results/cpu_profile.txt /host-results/ 2>/dev/null || true
+              cp /opt/mpu6050-test/results/memory_profile.txt /host-results/ 2>/dev/null || true
+              cp /opt/mpu6050-test/results/perf_detailed.json /host-results/ 2>/dev/null || true
+              
+              # Generate summary
+              echo '{' > /host-results/perf_summary.json
+              echo '  \"timestamp\": \"$(date -u --iso-8601=seconds)\",' >> /host-results/perf_summary.json
+              echo '  \"commit\": \"${{ github.sha }}\",' >> /host-results/perf_summary.json
+              echo '  \"branch\": \"${{ github.ref_name }}\",' >> /host-results/perf_summary.json
+              echo '  \"iterations\": ${{ needs.setup-performance.outputs.test-iterations }},' >> /host-results/perf_summary.json
+              echo '  \"profile\": \"${{ needs.setup-performance.outputs.test-profile }}\",' >> /host-results/perf_summary.json
+              echo '  \"trigger\": \"${{ github.event_name }}\"' >> /host-results/perf_summary.json
+              echo '}' >> /host-results/perf_summary.json
+            "
+
+      - name: Upload current performance data
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-current
+          path: tests/e2e/docker/perf-results/current/
+          retention-days: 30
+
+      - name: Cleanup
+        if: always()
+        run: |
+          cd tests/e2e/docker
+          docker compose down -v
+
+  # Baseline performance testing (for comparison)
+  baseline-performance:
+    runs-on: ubuntu-latest
+    needs: setup-performance
+    if: needs.setup-performance.outputs.should-compare == 'true'
+    steps:
+      - name: Checkout baseline code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.setup-performance.outputs.baseline-ref }}
+          path: baseline
+
+      - name: Checkout current code (for test scripts)
+        uses: actions/checkout@v4
+        with:
+          path: current
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build baseline performance environment
+        run: |
+          cd baseline/tests/e2e/docker
+          docker compose build mpu6050-e2e-tests
+        env:
+          BUILD_DATE: ${{ github.event.head_commit.timestamp }}
+          VCS_REF: ${{ needs.setup-performance.outputs.baseline-ref }}
+
+      - name: Run baseline performance benchmarks
+        timeout-minutes: 60
+        run: |
+          cd baseline/tests/e2e/docker
+          
+          # Configure performance testing environment
+          export PERF_TEST_ENABLED=true
+          export PERF_TEST_ITERATIONS=${{ needs.setup-performance.outputs.test-iterations }}
+          export PERF_TEST_PROFILE=${{ needs.setup-performance.outputs.test-profile }}
+          export PERF_DETAILED_METRICS=true
+          export TEST_ENV=performance
+          export CI=true
+          
+          # Start infrastructure
+          docker compose up -d test-database
+          
+          # Wait for database
+          for i in {1..30}; do
+            if docker compose exec test-database pg_isready -U testuser -d mpu6050_test_results; then
+              break
+            fi
+            sleep 2
+          done
+          
+          echo "Running baseline performance benchmarks..."
+          docker compose run --rm \
+            -e PERF_TEST_ENABLED=true \
+            -e PERF_TEST_ITERATIONS=${{ needs.setup-performance.outputs.test-iterations }} \
+            -e PERF_TEST_PROFILE=${{ needs.setup-performance.outputs.test-profile }} \
+            -e PERF_OUTPUT_FORMAT=json \
+            -e PERF_TIMESTAMP="$(date -u +%Y%m%d_%H%M%S)" \
+            mpu6050-e2e-tests \
+            python3 /opt/mpu6050-test/tests/e2e/utils/performance_test.py \
+              --profile ${{ needs.setup-performance.outputs.test-profile }} \
+              --iterations ${{ needs.setup-performance.outputs.test-iterations }} \
+              --output-json /opt/mpu6050-test/results/perf_baseline.json \
+              --detailed
+
+      - name: Collect baseline performance data
+        if: always()
+        run: |
+          cd baseline/tests/e2e/docker
+          mkdir -p perf-results/baseline
+          
+          # Extract performance data from container
+          docker compose run --rm \
+            -v $(pwd)/perf-results/baseline:/host-results \
+            mpu6050-e2e-tests \
+            sh -c "
+              cp /opt/mpu6050-test/results/perf_baseline.json /host-results/ 2>/dev/null || true
+              cp /opt/mpu6050-test/results/perf_detailed.json /host-results/baseline_detailed.json 2>/dev/null || true
+              
+              # Generate baseline summary
+              echo '{' > /host-results/baseline_summary.json
+              echo '  \"timestamp\": \"$(date -u --iso-8601=seconds)\",' >> /host-results/baseline_summary.json
+              echo '  \"commit\": \"${{ needs.setup-performance.outputs.baseline-ref }}\",' >> /host-results/baseline_summary.json
+              echo '  \"iterations\": ${{ needs.setup-performance.outputs.test-iterations }},' >> /host-results/baseline_summary.json
+              echo '  \"profile\": \"${{ needs.setup-performance.outputs.test-profile }}\"' >> /host-results/baseline_summary.json
+              echo '}' >> /host-results/baseline_summary.json
+            "
+
+      - name: Upload baseline performance data
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-baseline
+          path: baseline/tests/e2e/docker/perf-results/baseline/
+          retention-days: 30
+
+      - name: Cleanup baseline
+        if: always()
+        run: |
+          cd baseline/tests/e2e/docker
+          docker compose down -v
+
+  # Performance analysis and comparison
+  analyze-performance:
+    runs-on: ubuntu-latest
+    needs: [setup-performance, current-performance, baseline-performance]
+    if: always() && needs.current-performance.result == 'success'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download performance data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: performance-*
+          merge-multiple: true
+
+      - name: Setup Python for analysis
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install analysis dependencies
+        run: |
+          pip install pandas matplotlib seaborn numpy scipy jinja2 plotly
+
+      - name: Analyze performance trends
+        run: |
+          python3 -c "
+          import json, glob, os, sys
+          import pandas as pd
+          import matplotlib.pyplot as plt
+          import numpy as np
+          from datetime import datetime
+          import warnings
+          warnings.filterwarnings('ignore')
+          
+          # Load current performance data
+          current_data = {}
+          if os.path.exists('perf_current.json'):
+            with open('perf_current.json', 'r') as f:
+              current_data = json.load(f)
+          
+          # Load baseline data if available
+          baseline_data = {}
+          if os.path.exists('perf_baseline.json'):
+            with open('perf_baseline.json', 'r') as f:
+              baseline_data = json.load(f)
+          
+          # Analysis results
+          analysis = {
+            'timestamp': datetime.now().isoformat(),
+            'current': current_data,
+            'baseline': baseline_data,
+            'comparison': {},
+            'regressions': [],
+            'improvements': [],
+            'alerts': []
+          }
+          
+          # Performance comparison
+          if baseline_data and current_data:
+            print('Performing performance comparison...')
+            
+            # Key metrics to compare
+            metrics_to_compare = [
+              'avg_response_time_ms',
+              'throughput_ops_sec', 
+              'cpu_usage_percent',
+              'memory_usage_mb',
+              'error_rate_percent'
+            ]
+            
+            for metric in metrics_to_compare:
+              if metric in current_data and metric in baseline_data:
+                current_val = float(current_data[metric])
+                baseline_val = float(baseline_data[metric])
+                
+                if baseline_val != 0:
+                  change_percent = ((current_val - baseline_val) / baseline_val) * 100
+                  
+                  analysis['comparison'][metric] = {
+                    'current': current_val,
+                    'baseline': baseline_val,
+                    'change_percent': round(change_percent, 2),
+                    'change_direction': 'increase' if change_percent > 0 else 'decrease'
+                  }
+                  
+                  # Determine if this is a regression or improvement
+                  threshold = float(${{ env.REGRESSION_THRESHOLD }})
+                  
+                  # For some metrics, lower is better (response time, cpu, memory, errors)
+                  if metric in ['avg_response_time_ms', 'cpu_usage_percent', 'memory_usage_mb', 'error_rate_percent']:
+                    if change_percent > threshold:
+                      analysis['regressions'].append({
+                        'metric': metric,
+                        'change_percent': change_percent,
+                        'severity': 'high' if change_percent > threshold * 2 else 'medium'
+                      })
+                    elif change_percent < -threshold:
+                      analysis['improvements'].append({
+                        'metric': metric,
+                        'change_percent': change_percent
+                      })
+                  # For throughput, higher is better
+                  elif metric == 'throughput_ops_sec':
+                    if change_percent < -threshold:
+                      analysis['regressions'].append({
+                        'metric': metric,
+                        'change_percent': change_percent,
+                        'severity': 'high' if change_percent < -threshold * 2 else 'medium'
+                      })
+                    elif change_percent > threshold:
+                      analysis['improvements'].append({
+                        'metric': metric,
+                        'change_percent': change_percent
+                      })
+          
+          # Generate alerts
+          if analysis['regressions']:
+            high_severity = [r for r in analysis['regressions'] if r.get('severity') == 'high']
+            if high_severity:
+              analysis['alerts'].append({
+                'type': 'critical',
+                'message': f'Critical performance regression detected in {len(high_severity)} metrics'
+              })
+            else:
+              analysis['alerts'].append({
+                'type': 'warning', 
+                'message': f'Performance regression detected in {len(analysis[\"regressions\"])} metrics'
+              })
+          
+          # Save analysis
+          with open('performance_analysis.json', 'w') as f:
+            json.dump(analysis, f, indent=2)
+          
+          # Generate trend charts if matplotlib is available
+          try:
+            if current_data:
+              # Create performance metrics chart
+              metrics = list(current_data.keys())
+              values = [float(v) if isinstance(v, (int, float)) else 0 for v in current_data.values()]
+              
+              fig, ax = plt.subplots(figsize=(12, 8))
+              bars = ax.bar(range(len(metrics)), values)
+              ax.set_xlabel('Metrics')
+              ax.set_ylabel('Values') 
+              ax.set_title('Current Performance Metrics')
+              ax.set_xticks(range(len(metrics)))
+              ax.set_xticklabels(metrics, rotation=45, ha='right')
+              
+              # Add value labels on bars
+              for bar, value in zip(bars, values):
+                height = bar.get_height()
+                ax.text(bar.get_x() + bar.get_width()/2., height,
+                       f'{value:.2f}', ha='center', va='bottom')
+              
+              plt.tight_layout()
+              plt.savefig('performance_metrics.png', dpi=150, bbox_inches='tight')
+              plt.close()
+              print('Performance metrics chart saved')
+          except Exception as e:
+            print(f'Chart generation failed: {e}')
+          
+          # Exit with error code if critical regressions found
+          critical_regressions = [r for r in analysis.get('regressions', []) if r.get('severity') == 'high']
+          if critical_regressions:
+            print(f'CRITICAL: {len(critical_regressions)} critical performance regressions detected!')
+            sys.exit(1)
+          elif analysis.get('regressions'):
+            print(f'WARNING: {len(analysis[\"regressions\"])} performance regressions detected')
+            sys.exit(2)  # Warning exit code
+          else:
+            print('Performance analysis completed successfully')
+          "
+
+      - name: Generate performance report
+        run: |
+          python3 -c "
+          import json, os
+          from jinja2 import Template
+          from datetime import datetime
+          
+          # Load analysis data
+          analysis = {}
+          if os.path.exists('performance_analysis.json'):
+            with open('performance_analysis.json', 'r') as f:
+              analysis = json.load(f)
+          
+          # HTML report template
+          html_template = '''
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Performance Monitoring Report</title>
+              <style>
+                  body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }
+                  .header { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 30px; border-left: 4px solid #007bff; }
+                  .alert-critical { background: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; margin: 20px 0; border-radius: 4px; }
+                  .alert-warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px; }
+                  .alert-success { background: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0; border-radius: 4px; }
+                  .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 20px 0; }
+                  .metric-card { background: white; padding: 20px; border: 1px solid #dee2e6; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                  .metric-value { font-size: 2em; font-weight: bold; color: #495057; }
+                  .metric-change { font-size: 1.2em; margin-top: 10px; }
+                  .positive { color: #28a745; }
+                  .negative { color: #dc3545; }
+                  .table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                  .table th, .table td { padding: 12px; text-align: left; border-bottom: 1px solid #dee2e6; }
+                  .table th { background-color: #f8f9fa; font-weight: 600; }
+                  .regression { background-color: #fff5f5; }
+                  .improvement { background-color: #f0fff4; }
+                  .chart-container { text-align: center; margin: 30px 0; }
+              </style>
+          </head>
+          <body>
+              <div class=\"header\">
+                  <h1>🚀 Performance Monitoring Report</h1>
+                  <p><strong>Generated:</strong> {{ analysis.timestamp or 'N/A' }}</p>
+                  <p><strong>Commit:</strong> ${{ github.sha[:8] }}</p>
+                  <p><strong>Branch:</strong> ${{ github.ref_name }}</p>
+                  <p><strong>Trigger:</strong> ${{ github.event_name }}</p>
+                  {% if analysis.baseline %}
+                  <p><strong>Baseline:</strong> {{ analysis.comparison | length }} metrics compared</p>
+                  {% endif %}
+              </div>
+              
+              {% for alert in analysis.get('alerts', []) %}
+                  <div class=\"alert-{{ alert.type }}\">
+                      <strong>{{ alert.type.upper() }}:</strong> {{ alert.message }}
+                  </div>
+              {% endfor %}
+              
+              {% if not analysis.get('alerts') %}
+                  <div class=\"alert-success\">
+                      <strong>✅ NO ISSUES:</strong> No performance regressions detected
+                  </div>
+              {% endif %}
+              
+              {% if analysis.get('comparison') %}
+              <h2>📊 Performance Comparison</h2>
+              <div class=\"metrics-grid\">
+                  {% for metric, data in analysis.comparison.items() %}
+                  <div class=\"metric-card\">
+                      <h4>{{ metric.replace('_', ' ').title() }}</h4>
+                      <div class=\"metric-value\">{{ \"%.2f\" | format(data.current) }}</div>
+                      <div class=\"metric-change {{ 'positive' if data.change_percent > 0 else 'negative' if data.change_percent < 0 else '' }}\">
+                          {{ \"%+.1f\" | format(data.change_percent) }}% vs baseline
+                      </div>
+                      <small>Baseline: {{ \"%.2f\" | format(data.baseline) }}</small>
+                  </div>
+                  {% endfor %}
+              </div>
+              {% endif %}
+              
+              {% if analysis.get('regressions') or analysis.get('improvements') %}
+              <h2>📈 Performance Changes</h2>
+              <table class=\"table\">
+                  <thead>
+                      <tr>
+                          <th>Metric</th>
+                          <th>Change</th>
+                          <th>Impact</th>
+                          <th>Severity</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+                      {% for reg in analysis.get('regressions', []) %}
+                      <tr class=\"regression\">
+                          <td>{{ reg.metric.replace('_', ' ').title() }}</td>
+                          <td>{{ \"%+.1f\" | format(reg.change_percent) }}%</td>
+                          <td>Regression</td>
+                          <td>{{ reg.get('severity', 'medium').title() }}</td>
+                      </tr>
+                      {% endfor %}
+                      {% for imp in analysis.get('improvements', []) %}
+                      <tr class=\"improvement\">
+                          <td>{{ imp.metric.replace('_', ' ').title() }}</td>
+                          <td>{{ \"%+.1f\" | format(imp.change_percent) }}%</td>
+                          <td>Improvement</td>
+                          <td>-</td>
+                      </tr>
+                      {% endfor %}
+                  </tbody>
+              </table>
+              {% endif %}
+              
+              {% if analysis.get('current') %}
+              <h2>📋 Current Performance Metrics</h2>
+              <table class=\"table\">
+                  <thead>
+                      <tr><th>Metric</th><th>Value</th></tr>
+                  </thead>
+                  <tbody>
+                      {% for metric, value in analysis.current.items() %}
+                      <tr>
+                          <td>{{ metric.replace('_', ' ').title() }}</td>
+                          <td>{{ value }}</td>
+                      </tr>
+                      {% endfor %}
+                  </tbody>
+              </table>
+              {% endif %}
+              
+              {% if analysis.get('current') and 'performance_metrics.png' %}
+              <div class=\"chart-container\">
+                  <h3>Performance Metrics Visualization</h3>
+                  <img src=\"performance_metrics.png\" alt=\"Performance Metrics Chart\" style=\"max-width: 100%; height: auto;\">
+              </div>
+              {% endif %}
+              
+              <div style=\"margin-top: 40px; padding-top: 20px; border-top: 1px solid #dee2e6; color: #6c757d; font-size: 0.9em;\">
+                  <p>Report generated by GitHub Actions Performance Monitoring</p>
+                  <p>Regression threshold: ${{ env.REGRESSION_THRESHOLD }}%</p>
+              </div>
+          </body>
+          </html>
+          '''
+          
+          template = Template(html_template)
+          html_content = template.render(analysis=analysis)
+          
+          with open('PERFORMANCE_REPORT.html', 'w') as f:
+            f.write(html_content)
+          
+          # Markdown summary
+          with open('PERFORMANCE_SUMMARY.md', 'w') as f:
+            f.write('# Performance Monitoring Summary\\n\\n')
+            
+            if analysis.get('alerts'):
+              for alert in analysis['alerts']:
+                icon = '🚨' if alert['type'] == 'critical' else '⚠️' if alert['type'] == 'warning' else 'ℹ️'
+                f.write(f'{icon} **{alert[\"type\"].upper()}**: {alert[\"message\"]}\\n\\n')
+            else:
+              f.write('✅ **STATUS**: No performance issues detected\\n\\n')
+            
+            if analysis.get('comparison'):
+              f.write('## Comparison Results\\n\\n')
+              f.write('| Metric | Current | Baseline | Change |\\n')
+              f.write('|--------|---------|----------|--------|\\n')
+              for metric, data in analysis['comparison'].items():
+                change_str = f\"{data['change_percent']:+.1f}%\"
+                f.write(f'| {metric.replace(\"_\", \" \").title()} | {data[\"current\"]:.2f} | {data[\"baseline\"]:.2f} | {change_str} |\\n')
+            
+            if analysis.get('regressions'):
+              f.write('\\n## ⬇️ Performance Regressions\\n\\n')
+              for reg in analysis['regressions']:
+                f.write(f'- **{reg[\"metric\"]}**: {reg[\"change_percent\"]:+.1f}% ({reg.get(\"severity\", \"medium\")} severity)\\n')
+            
+            if analysis.get('improvements'):
+              f.write('\\n## ⬆️ Performance Improvements\\n\\n')
+              for imp in analysis['improvements']:
+                f.write(f'- **{imp[\"metric\"]}**: {imp[\"change_percent\"]:+.1f}%\\n')
+          
+          print('Performance report generated successfully')
+          "
+
+      - name: Store performance baseline
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          mkdir -p ${{ env.PERF_DATA_DIR }}
+          
+          # Store current performance as new baseline
+          if [ -f perf_current.json ]; then
+            cp perf_current.json ${{ env.PERF_DATA_DIR }}/baseline_${{ github.sha }}.json
+            cp perf_current.json ${{ env.PERF_DATA_DIR }}/latest_baseline.json
+          fi
+          
+          # Clean up old baselines (keep only recent ones)
+          find ${{ env.PERF_DATA_DIR }} -name 'baseline_*.json' -mtime +${{ env.BASELINE_RETENTION_DAYS }} -delete 2>/dev/null || true
+
+      - name: Upload performance analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-analysis-report
+          path: |
+            PERFORMANCE_REPORT.html
+            PERFORMANCE_SUMMARY.md
+            performance_analysis.json
+            performance_metrics.png
+          retention-days: 90
+
+      - name: Comment PR with performance results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (fs.existsSync('PERFORMANCE_SUMMARY.md')) {
+              const summary = fs.readFileSync('PERFORMANCE_SUMMARY.md', 'utf8');
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## Performance Analysis Results\n\n${summary}\n\n[View detailed report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+              });
+            }
+
+      - name: Update dashboard data
+        if: github.ref == 'refs/heads/main'
+        run: |
+          # This would typically update a performance dashboard
+          # For now, we'll just log the action
+          echo "Performance data would be sent to dashboard here"
+          echo "Timestamp: $(date -u --iso-8601=seconds)"
+          echo "Commit: ${{ github.sha }}"
+          echo "Performance data available in artifacts"
+
+  # Alert on critical regressions
+  alert-on-regression:
+    runs-on: ubuntu-latest
+    needs: [setup-performance, analyze-performance]
+    if: always() && needs.analyze-performance.result == 'failure'
+    steps:
+      - name: Create performance regression issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `🚨 Critical Performance Regression Detected - ${new Date().toISOString().split('T')[0]}`;
+            const body = `
+            ## Critical Performance Regression
+            
+            A critical performance regression has been detected in the latest changes.
+            
+            **Details:**
+            - **Commit:** ${{ github.sha }}
+            - **Branch:** ${{ github.ref_name }}
+            - **Trigger:** ${{ github.event_name }}
+            - **Baseline:** ${{ needs.setup-performance.outputs.baseline-ref }}
+            - **Threshold:** ${{ env.REGRESSION_THRESHOLD }}%
+            
+            **Impact:**
+            The performance analysis failed with critical regressions detected. This indicates
+            significant performance degradation that may impact system performance in production.
+            
+            **Action Required:**
+            1. Review the performance analysis report in the workflow artifacts
+            2. Identify the root cause of the performance regression
+            3. Implement fixes or optimizations
+            4. Re-run performance tests to validate improvements
+            
+            **Links:**
+            - [Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            - [Performance Analysis Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            
+            ---
+            *This issue was automatically created by the Performance Monitoring workflow.*
+            `;
+            
+            // Create the issue
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['performance', 'regression', 'critical', 'automated']
+            });
+            
+            // If this is a PR, also add a comment
+            if (context.payload.pull_request) {
+              await github.rest.issues.createComment({
+                issue_number: context.payload.pull_request.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `🚨 **Critical Performance Regression Detected**\n\nThis PR introduces critical performance regressions. Please see issue #${issue.data.number} for details.\n\n❌ This PR should not be merged until performance issues are resolved.`
+              });
+            }
+
+  # Cleanup and maintenance
+  cleanup:
+    runs-on: ubuntu-latest
+    needs: [current-performance, baseline-performance, analyze-performance]
+    if: always()
+    steps:
+      - name: Cleanup Docker resources
+        run: |
+          docker system prune -f
+          docker volume prune -f
+
+      - name: Performance monitoring summary
+        run: |
+          echo "## Performance Monitoring Completed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Results:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Current Performance: ${{ needs.current-performance.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Baseline Performance: ${{ needs.baseline-performance.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY  
+          echo "- Analysis: ${{ needs.analyze-performance.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check workflow artifacts for detailed performance reports and metrics." >> $GITHUB_STEP_SUMMARY
