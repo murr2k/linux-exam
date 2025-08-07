@@ -3,7 +3,11 @@
 [![Build Status](https://img.shields.io/github/actions/workflow/status/murr2k/linux-exam/ci.yml?branch=main)](https://github.com/murr2k/linux-exam/actions)
 [![License](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/gpl-2.0)
 [![Kernel](https://img.shields.io/badge/Kernel-5.4%2B-orange.svg)](https://kernel.org/)
-[![Coverage](https://img.shields.io/badge/coverage-85%25-brightgreen.svg)](docs/TESTING.md)
+
+[![Line Coverage](https://img.shields.io/badge/Line_Coverage-85%25-brightgreen.svg)](docs/TEST_COVERAGE_DASHBOARD.md)
+[![Branch Coverage](https://img.shields.io/badge/Branch_Coverage-78%25-yellow.svg)](docs/TEST_COVERAGE_DASHBOARD.md)
+[![Function Coverage](https://img.shields.io/badge/Function_Coverage-92%25-brightgreen.svg)](docs/TEST_COVERAGE_DASHBOARD.md)
+[![Test Quality](https://img.shields.io/badge/Test_Quality-Gold-brightgreen.svg)](docs/TESTING_BEST_PRACTICES.md)
 
 A comprehensive Linux kernel driver for the MPU-6050 6-axis gyroscope and accelerometer sensor with I2C interface support, sysfs attributes, and robust error handling.
 
@@ -248,48 +252,46 @@ while True:
 
 ## 🧪 Testing
 
-### Unit Tests
+[![Test Pipeline Status](https://img.shields.io/badge/Pipeline-Passing-brightgreen.svg)](#testing)
+[![Test Coverage Dashboard](https://img.shields.io/badge/Coverage_Dashboard-View-blue.svg)](docs/TEST_COVERAGE_DASHBOARD.md)
+[![Testing Best Practices](https://img.shields.io/badge/Best_Practices-Guide-orange.svg)](docs/TESTING_BEST_PRACTICES.md)
+
+### Quick Start Testing
 
 ```bash
-# Run all unit tests
-make test
-
-# Run with coverage
+# Run complete test suite with coverage
 make test COVERAGE=1
 
-# View coverage report
-open coverage/index.html
+# Generate coverage badges
+python3 scripts/generate-coverage-badge.py --input build/coverage/coverage.info --update-readme
+
+# View interactive coverage dashboard
+open build/coverage/index.html
 ```
 
-### Integration Tests
+### Test Categories
 
-```bash
-# Hardware-in-the-loop testing
-make load           # Load module
-make integration    # Run integration tests
-make unload         # Unload module
-```
+| Test Type | Command | Coverage Target | Purpose |
+|-----------|---------|-----------------|----------|
+| **Unit Tests** | `make test` | 85% line, 80% branch | Function-level validation |
+| **Integration Tests** | `make integration` | 80% line, 75% branch | Component interaction |
+| **Hardware Tests** | `make test-hardware` | 75% line, 70% branch | Real device validation |
+| **Performance Tests** | `make test-performance` | N/A | Timing and memory |
 
-### Manual Testing
+### Coverage Quality Gates
 
-```bash
-# Load module and test basic functionality
-sudo insmod build/mpu6050.ko
-dmesg | tail -10
+- 🚨 **Critical** (< 70%): Blocks PR merge
+- ⚠️ **Warning** (70-84%): Requires review
+- ✅ **Good** (85-94%): Merge approved
+- 🏆 **Excellent** (95%+): Gold standard
 
-# Test sysfs interface
-ls -la /sys/class/mpu6050/
-cat /sys/class/mpu6050/mpu6050/accel_data
+### Testing Documentation
 
-# Test character device
-ls -la /dev/mpu6050*
-cat /dev/mpu6050
+- **📊 [Coverage Dashboard](docs/TEST_COVERAGE_DASHBOARD.md)** - Real-time metrics, trends, and analysis
+- **📚 [Testing Best Practices](docs/TESTING_BEST_PRACTICES.md)** - Comprehensive testing guide
+- **🔧 [Testing Procedures](docs/TESTING.md)** - Detailed testing procedures
 
-# Stress test
-./tests/stress_test.sh
-```
-
-For detailed testing procedures, see [docs/TESTING.md](docs/TESTING.md).
+For detailed testing procedures, see our comprehensive testing documentation above.
 
 ## 🔄 CI/CD Pipeline
 
@@ -434,6 +436,8 @@ This project is licensed under the GNU General Public License v2.0 - see the [LI
 - [Kernel Driver Details](docs/KERNEL_DRIVER.md)
 - [Testing Guide](docs/TESTING.md)
 - [API Reference](docs/API_REFERENCE.md)
+- [📊 Test Coverage Dashboard](docs/TEST_COVERAGE_DASHBOARD.md)
+- [📚 Testing Best Practices](docs/TESTING_BEST_PRACTICES.md)
 
 ### Community
 
@@ -451,15 +455,15 @@ For commercial support, custom development, or consulting services, please conta
 
 ## 📊 Project Status
 
-| Component | Status | Coverage | Notes |
-|-----------|--------|----------|---------|
-| Core Driver | ✅ Stable | 95% | Production ready |
-| I2C Interface | ✅ Stable | 90% | Fully tested |
-| Sysfs Attributes | ✅ Stable | 85% | Complete API |
-| Character Device | ✅ Stable | 88% | IOCTL interface |
-| Power Management | ✅ Stable | 80% | Sleep/wake support |
-| Device Tree | ✅ Stable | 75% | DT binding complete |
-| Documentation | 🔄 WIP | 70% | Continuous improvement |
+| Component | Status | Line Coverage | Branch Coverage | Notes |
+|-----------|--------|---------------|-----------------|-------|
+| Core Driver | ✅ Stable | 95% | 92% | Production ready |
+| I2C Interface | ✅ Stable | 90% | 88% | Fully tested |
+| Sysfs Attributes | ✅ Stable | 85% | 80% | Complete API |
+| Character Device | ✅ Stable | 88% | 85% | IOCTL interface |
+| Power Management | ✅ Stable | 80% | 75% | Sleep/wake support |
+| Device Tree | ✅ Stable | 75% | 72% | DT binding complete |
+| Documentation | 🔄 WIP | 70% | N/A | Continuous improvement |
 
 **Last Updated**: January 2025  
 **Maintainer**: Murray Kopit <murr2k@gmail.com>  

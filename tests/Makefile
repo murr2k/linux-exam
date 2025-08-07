@@ -14,13 +14,17 @@ MOCK_DIR = mocks
 UTILS_DIR = utils
 FIXTURES_DIR = fixtures
 UNIT_DIR = unit
+E2E_DIR = e2e
 
 # Compiler settings
+CC = gcc
 CXX = g++
+CSTD = -std=c99
 CXXSTD = -std=c++17
+CFLAGS = -Wall -Wextra -Wpedantic -g -O0 $(CSTD)
 CXXFLAGS = -Wall -Wextra -Wpedantic -g -O0 $(CXXSTD)
-LDFLAGS = 
-INCLUDES = -I$(SRC_DIR) -I$(MOCK_DIR) -I$(UTILS_DIR) -I$(FIXTURES_DIR)
+LDFLAGS = -lm -lpthread
+INCLUDES = -I$(SRC_DIR) -I$(MOCK_DIR) -I$(UTILS_DIR) -I$(FIXTURES_DIR) -I../include
 
 # Preprocessor definitions
 DEFINES = -DUNIT_TEST_BUILD=1 -DLINUX_KERNEL_MOCK=1 -D__KERNEL__=1 -DMODULE=1
@@ -37,26 +41,39 @@ ALL_CXXFLAGS = $(CXXFLAGS) $(INCLUDES) $(DEFINES) $(GTEST_CFLAGS)
 ALL_LDFLAGS = $(LDFLAGS) $(GTEST_LIBS) $(THREAD_LIBS)
 
 # Source files
-MOCK_SOURCES = $(wildcard $(MOCK_DIR)/*.cpp)
-UTILS_SOURCES = $(wildcard $(UTILS_DIR)/*.cpp)
+MOCK_CPP_SOURCES = $(wildcard $(MOCK_DIR)/*.cpp)
+MOCK_C_SOURCES = $(wildcard $(MOCK_DIR)/*.c)
+UTILS_CPP_SOURCES = $(wildcard $(UTILS_DIR)/*.cpp)
+UTILS_C_SOURCES = $(wildcard $(UTILS_DIR)/*.c)
 FIXTURES_SOURCES = $(wildcard $(FIXTURES_DIR)/*.cpp)
 UNIT_SOURCES = $(wildcard $(UNIT_DIR)/*.cpp)
+E2E_SOURCES = $(wildcard $(E2E_DIR)/*.c)
 
 # Object files
-MOCK_OBJECTS = $(MOCK_SOURCES:$(MOCK_DIR)/%.cpp=$(OBJ_DIR)/mock_%.o)
-UTILS_OBJECTS = $(UTILS_SOURCES:$(UTILS_DIR)/%.cpp=$(OBJ_DIR)/utils_%.o)
+MOCK_CPP_OBJECTS = $(MOCK_CPP_SOURCES:$(MOCK_DIR)/%.cpp=$(OBJ_DIR)/mock_%.o)
+MOCK_C_OBJECTS = $(MOCK_C_SOURCES:$(MOCK_DIR)/%.c=$(OBJ_DIR)/mock_%.o)
+UTILS_CPP_OBJECTS = $(UTILS_CPP_SOURCES:$(UTILS_DIR)/%.cpp=$(OBJ_DIR)/utils_%.o)
+UTILS_C_OBJECTS = $(UTILS_C_SOURCES:$(UTILS_DIR)/%.c=$(OBJ_DIR)/utils_%.o)
 FIXTURES_OBJECTS = $(FIXTURES_SOURCES:$(FIXTURES_DIR)/%.cpp=$(OBJ_DIR)/fixtures_%.o)
 UNIT_OBJECTS = $(UNIT_SOURCES:$(UNIT_DIR)/%.cpp=$(OBJ_DIR)/unit_%.o)
+E2E_OBJECTS = $(E2E_SOURCES:$(E2E_DIR)/%.c=$(OBJ_DIR)/e2e_%.o)
+
+# Combined object files
+MOCK_OBJECTS = $(MOCK_CPP_OBJECTS) $(MOCK_C_OBJECTS)
+UTILS_OBJECTS = $(UTILS_CPP_OBJECTS) $(UTILS_C_OBJECTS)
 
 # Support library objects (mocks, utils, fixtures)
 SUPPORT_OBJECTS = $(MOCK_OBJECTS) $(UTILS_OBJECTS) $(FIXTURES_OBJECTS)
 
 # All object files
 ALL_OBJECTS = $(SUPPORT_OBJECTS) $(UNIT_OBJECTS)
+C_OBJECTS = $(MOCK_C_OBJECTS) $(UTILS_C_OBJECTS) $(E2E_OBJECTS)
 
 # Executables
 MAIN_EXECUTABLE = $(BIN_DIR)/$(PROJECT_NAME)
-TEST_EXECUTABLES = $(MAIN_EXECUTABLE)
+E2E_EXECUTABLE = $(BIN_DIR)/$(PROJECT_NAME)_e2e
+C_TEST_EXECUTABLE = $(BIN_DIR)/$(PROJECT_NAME)_c_tests
+TEST_EXECUTABLES = $(MAIN_EXECUTABLE) $(E2E_EXECUTABLE) $(C_TEST_EXECUTABLE)
 
 # Default target
 .PHONY: all
@@ -74,10 +91,20 @@ check-deps:
 $(BUILD_DIR) $(BIN_DIR) $(OBJ_DIR):
 	mkdir -p $@
 
-# Build main test executable
+# Build main test executable (C++)
 $(MAIN_EXECUTABLE): $(ALL_OBJECTS) | $(BIN_DIR)
 	@echo "Linking $@..."
 	$(CXX) $(ALL_OBJECTS) -o $@ $(ALL_LDFLAGS)
+
+# Build E2E test executable (C)
+$(E2E_EXECUTABLE): $(E2E_OBJECTS) $(MOCK_C_OBJECTS) $(UTILS_C_OBJECTS) | $(BIN_DIR)
+	@echo "Linking $@..."
+	$(CC) $(E2E_OBJECTS) $(MOCK_C_OBJECTS) $(UTILS_C_OBJECTS) -o $@ $(LDFLAGS)
+
+# Build C unit test executable
+$(C_TEST_EXECUTABLE): $(MOCK_C_OBJECTS) $(UTILS_C_OBJECTS) | $(BIN_DIR)
+	@echo "Linking $@..."
+	$(CC) $(MOCK_C_OBJECTS) $(UTILS_C_OBJECTS) -o $@ $(LDFLAGS) -DUNIT_TEST_MAIN
 
 # Compile mock sources
 $(OBJ_DIR)/mock_%.o: $(MOCK_DIR)/%.cpp | $(OBJ_DIR)
@@ -99,11 +126,45 @@ $(OBJ_DIR)/unit_%.o: $(UNIT_DIR)/%.cpp | $(OBJ_DIR)
 	@echo "Compiling $<..."
 	$(CXX) $(ALL_CXXFLAGS) -c $< -o $@
 
+# Compile C mock sources
+$(OBJ_DIR)/mock_%.o: $(MOCK_DIR)/%.c | $(OBJ_DIR)
+	@echo "Compiling $<..."
+	$(CC) $(CFLAGS) $(INCLUDES) $(DEFINES) -c $< -o $@
+
+# Compile C utility sources
+$(OBJ_DIR)/utils_%.o: $(UTILS_DIR)/%.c | $(OBJ_DIR)
+	@echo "Compiling $<..."
+	$(CC) $(CFLAGS) $(INCLUDES) $(DEFINES) -c $< -o $@
+
+# Compile E2E test sources
+$(OBJ_DIR)/e2e_%.o: $(E2E_DIR)/%.c | $(OBJ_DIR)
+	@echo "Compiling $<..."
+	$(CC) $(CFLAGS) $(INCLUDES) $(DEFINES) -c $< -o $@
+
 # Test targets
 .PHONY: test
-test: $(MAIN_EXECUTABLE)
-	@echo "Running all tests..."
+test: $(TEST_EXECUTABLES)
+	@echo "Running C++ unit tests..."
 	$(MAIN_EXECUTABLE)
+	@echo "Running C unit tests..."
+	-$(C_TEST_EXECUTABLE)
+	@echo "Running E2E tests..."
+	-$(E2E_EXECUTABLE)
+
+.PHONY: test-cpp
+test-cpp: $(MAIN_EXECUTABLE)
+	@echo "Running C++ tests..."
+	$(MAIN_EXECUTABLE)
+
+.PHONY: test-c
+test-c: $(C_TEST_EXECUTABLE)
+	@echo "Running C tests..."
+	$(C_TEST_EXECUTABLE)
+
+.PHONY: test-e2e
+test-e2e: $(E2E_EXECUTABLE)
+	@echo "Running E2E tests..."
+	$(E2E_EXECUTABLE)
 
 .PHONY: test-verbose
 test-verbose: $(MAIN_EXECUTABLE)

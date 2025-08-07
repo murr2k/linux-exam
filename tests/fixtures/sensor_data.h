@@ -1,314 +1,168 @@
-/**
- * @file sensor_data.h
- * @brief Predefined sensor data fixtures for comprehensive testing
- * 
- * This file contains realistic sensor data patterns, calibration values,
- * and test scenarios that can be used across multiple test cases to
- * ensure consistent and comprehensive testing of the MPU-6050 driver.
- */
 
 #ifndef SENSOR_DATA_H
 #define SENSOR_DATA_H
 
-extern "C" {
-    typedef signed short s16;
-    typedef unsigned char u8;
+#include <stdint.h>
+
+/**
+ * Mock MPU-6050 sensor data for testing
+ * Generated on: 2025-08-06T20:01:02.806508
+ */
+
+typedef struct {
+    int16_t accel_x;    // Accelerometer X-axis (±2g range)
+    int16_t accel_y;    // Accelerometer Y-axis (±2g range)
+    int16_t accel_z;    // Accelerometer Z-axis (±2g range)
+    int16_t temp;       // Temperature sensor
+    int16_t gyro_x;     // Gyroscope X-axis (±250°/s range)
+    int16_t gyro_y;     // Gyroscope Y-axis (±250°/s range)  
+    int16_t gyro_z;     // Gyroscope Z-axis (±250°/s range)
+} mpu6050_data_t;
+
+// Test data array
+static const mpu6050_data_t test_sensor_data[] = {
+    {  -9096,   -888,  20597,  15944,    353,   3783,  -2458 },
+    {   6963,  -8305,  22588, -10404,    867,   1625,   6998 },
+    { -15257, -10871,  23127,  -3280,    360,   3615,   6742 },
+    {  -1942,   1003,  17385, -20859,   4681,   2251,   3003 },
+    {  -2634,  -2331,  12698,  15422,  -7224,   4248,   7984 },
+    {   1086, -14323,  22537,   7298,  -6086,   7133,  -5702 },
+    {   3574,   4637,  21030, -21353,  -6330,  -6966,   5256 },
+    {   1209,   6031,   8201, -22739,   6395,  -3646,   1485 },
+    {  10163,  14149,  19035, -23897,   5814,   -399,   5209 },
+    { -15381, -12392,  11855,   6798,  -4716,  -4586,  -5642 },
+    {  -8714,  -4064,  17231, -13629,  -3243,  -5525,   1141 },
+    {  -6013, -10522,  24403, -16305,   4695,  -1256,  -6781 },
+    {  -1512,  -2434,  20429,  11639,   1565,  -2476,  -7513 },
+    {   3425,   5780,  24459, -19607,   6690,  -1446,  -7219 },
+    {    968,  11150,  19118, -21124,  -3193,   3624,  -2187 },
+    {  -6909,  12413,  19887,  -3892,   2885,  -4449,  -7374 },
+    {  10947, -13338,  23957,  -7820,  -2045,   4450,   2036 },
+    {  15987,   9350,  12952,  14903,   5527,  -4070,  -1318 },
+    {  -1689,  14788,  21654,  -8080,   6910,   3587,   4456 },
+    {  -2032,  -4974,  24376,  -1358,   5152,  -7436,  -5600 },
+    {  11741,   2954,  15027,   7882,   6310,   4969,  -5318 },
+    {   4836,   1051,   8962,    186,  -6246,  -7519,   1188 },
+    { -13162,  13401,  11245, -12720,  -7355,   1162,   6733 },
+    {  -9611,  -8551,  13326,  14221,  -7525,  -3473,  -2937 },
+    {  16286,   1724,  11781,  -8623,   1928,   7348,   -579 },
+    {   2911,   4467,  12282,   8596,   5296,  -1493,  -1016 },
+    {  -4604, -14828,  14030,  13185,  -1773,   4820,  -5597 },
+    {   -940,   7558,  20330,   8500,  -4484,   2821,   -939 },
+    {  -8192,  -9786,  12734, -14278,   3190,   5123,   -120 },
+    {   8432,  12803,  17915,   3246,  -2738,  -3531,  -4500 },
+    {   2841,   -689,   8272, -25822,   2679,  -4546,   -763 },
+    {    940,   8238,  10687, -12944,  -4706,  -4728,  -6699 },
+    {  -1070,  -9248,  19428, -17165,     42,  -5370,  -7810 },
+    {  13556,   9586,  10142, -12341,  -1379,  -7953,  -1657 },
+    {  -1214, -13229,  12097,  10973,   5316,   3145,   1330 },
+    {  12593,  -9946,  22204,  -1414,   7005,  -6692,  -2991 },
+    {  -3555,   3582,  22507, -13717,  -3099,   4477,  -1767 },
+    { -15257,   5667,  11939, -11540,  -1767,   5350,  -3187 },
+    {   3304,  -8738,   8797,  -3621,   -471,  -5753,  -5048 },
+    {  -7500,   9152,  15232,   8756,  -4535,   4951,  -5978 },
+    {  -8197, -11028,  20400,   6633,  -6182,   1725,   7379 },
+    {  -6248,  -6803,   8465, -10490,   5823,  -6159,   3486 },
+    {  -7034, -10114,  15792,   6902,    302,    724,  -1123 },
+    {  -3303,  -4963,  19649,  16318,   -971,   6909,   3113 },
+    { -15258,   4220,  21640,  -4673,  -7226,   6801,  -2027 },
+    {  10871,    185,  23810,   9846,   8189,  -1854,  -7173 },
+    {  -4764, -11159,  20845, -10579,  -3639,   -708,  -5966 },
+    {  -3922,   6935,  20903,   3915,  -3551,  -2493,  -5802 },
+    {   9858,  -6782,  20305, -16434,   -885,   -813,   5160 },
+    {   2737,   3551,  17091,  11957,  -6407,   1311,   -824 },
+    {  -4710,  -9792,  12179,    -78,  -7966,   3617,  -4898 },
+    {   2836,  15392,  16967, -19112,  -4876,   6579,  -1456 },
+    {  -8785,  13861,  23971,   3993,  -2960,   5074,   -156 },
+    { -15760, -12756,  13295, -11846,  -3234,   1646,   3441 },
+    {   6976,  -4999,  12815,   3559,   3834,  -6273,  -2078 },
+    {  -1955, -12299,   9877,  11220,  -2345,  -7123,  -4297 },
+    {   6529,   5256,  18696, -25150,   6437,   2577,   3435 },
+    {   3413,  -1397,  14728,   6433,  -4280,  -6345,  -6060 },
+    { -10501,   4117,  10158, -14919,   2580,   -495,   4238 },
+    {  -8227,  15161,  14221,  15685,   3594,   1809,   1227 },
+    {   7811,   -296,  10241,   8616,  -2704,    -71,   7325 },
+    {  -7984,   9141,  19830, -16145,  -3797,   -904,  -1252 },
+    {   5602,  -1245,  22214,   4840,   7915,   2528,  -6111 },
+    {  -6945,  -3679,  22010,   1315,   -629,   7479,  -7817 },
+    {  -4464, -11387,   9021, -19843,   7295,  -3408,   1163 },
+    {  -2411,  -7354,  23515,  -4986,  -7993,  -4051,  -7951 },
+    {   4112,   4896,  11439,  -9293,  -5982,  -2704,  -6255 },
+    {   1173,   4242,  16096,  13218,   5944,  -1431,  -5561 },
+    {  -3479,  13832,  12332,   8443,   1829,  -2690,   2278 },
+    {   8062,   3552,  14478,   9773,   5465,   7034,  -4755 },
+    {   -148,   1117,  15455, -25294,  -2722,   1833,   -626 },
+    {   8094,  13317,  19579, -16376,  -5124,  -1965,   5167 },
+    {   6901,  -2603,  13073,   6198,  -2985,   5583,  -6458 },
+    {  13640,   3729,  11950,  -5493,  -3091,  -5017,   2409 },
+    {  -8395, -15404,   8950,  -3382,   2735,   2736,   6450 },
+    { -11393, -16123,  11290, -22255,   6832,  -1387,   3629 },
+    {   6035,     34,  16127,   7487,   5338,   -981,  -1106 },
+    {  15124,  -4650,  15426,  15604,  -4861,   8112,   1829 },
+    {  15155,   8547,  13216,   6979,   7445,   6311,  -4783 },
+    { -11015, -11557,  20731, -11368,   4895,  -5072,   3508 },
+    {  -6317,   2481,  12520, -18507,   -743,  -6510,  -5503 },
+    {   7845,  11314,  16779,  12101,    956,  -4314,   5929 },
+    {   1367, -13517,  19801,   -838,  -2437,    472,  -5516 },
+    {  -2945, -16139,  16667,   4525,   4072,  -3391,  -6557 },
+    {  -5473, -13644,  17198, -17431,   5833,   5040,   6107 },
+    { -12625, -10503,  14860, -13602,   7927,   5444,   7040 },
+    {  -4043,  -1124,  23794,   3038,   1283,   6579,  -1220 },
+    {  -8125,  -1120,  21205,   8838,   3232,    145,   4564 },
+    { -16096,  -5295,  10452,  13371,  -6395,   2617,   2588 },
+    {  -6573,   1830,  15262,  -4829,  -1091,  -3262,  -6585 },
+    {   6261,  14597,  15430, -17568,   8042,   2567,  -2804 },
+    {  13282,  14966,  14837,  12812,  -3573,   2162,   7904 },
+    {   8247,  14894,  13477,   -771,   4709,  -3154,   4761 },
+    {    -65,  15140,  24231, -18094,   1888,   3772,  -4371 },
+    { -11400,   6041,  13193, -16458,  -3284,   6794,   6904 },
+    { -10491,  -9369,  20529, -19536,   7014,  -5353,  -1111 },
+    {  -6230,  -8430,  10300,   4691,  -2664,  -6799,   5466 },
+    {  11443, -12658,  13829, -18199,   4409,   4783,  -1555 },
+    {   2669,  -6060,   8278, -25086,  -2244,   -736,  -5929 },
+    {  -8565,  -9427,  19563,   8772,  -2626,   1016,   6933 }
+};
+
+#define TEST_SENSOR_DATA_COUNT (sizeof(test_sensor_data) / sizeof(test_sensor_data[0]))
+
+// Predefined test scenarios
+typedef enum {
+    TEST_SCENARIO_NORMAL = 0,
+    TEST_SCENARIO_HIGH_ACCEL,
+    TEST_SCENARIO_HIGH_GYRO,
+    TEST_SCENARIO_TEMPERATURE_EXTREME,
+    TEST_SCENARIO_ALL_ZEROS,
+    TEST_SCENARIO_MAX_VALUES,
+    TEST_SCENARIO_COUNT
+} test_scenario_t;
+
+// Scenario-specific data
+static const mpu6050_data_t scenario_data[TEST_SCENARIO_COUNT] = {
+    // Normal operation
+    { 1000, 2000, 16384, 23000, 100, 200, 300 },
+    // High acceleration
+    { 30000, -25000, 20000, 23000, 100, 200, 300 },  
+    // High gyroscope readings
+    { 1000, 2000, 16384, 23000, 30000, -25000, 28000 },
+    // Extreme temperature
+    { 1000, 2000, 16384, -13000, 100, 200, 300 },  // ~-75°C
+    // All zeros (potential error condition)
+    { 0, 0, 0, 0, 0, 0, 0 },
+    // Maximum values (saturation test)
+    { 32767, 32767, 32767, 32767, 32767, 32767, 32767 }
+};
+
+// Helper functions for converting raw values
+static inline float accel_raw_to_g(int16_t raw) {
+    return (float)raw / 16384.0f;  // ±2g range, 16-bit
 }
 
-#include <vector>
-#include <map>
-#include <string>
+static inline float gyro_raw_to_dps(int16_t raw) {
+    return (float)raw / 131.0f;  // ±250°/s range
+}
 
-namespace SensorDataFixtures {
-
-    /**
-     * @struct SensorSample
-     * @brief Single sensor reading with metadata
-     */
-    struct SensorSample {
-        s16 accel_x, accel_y, accel_z;
-        s16 gyro_x, gyro_y, gyro_z;
-        s16 temperature;
-        std::string description;
-        u64 timestamp_us;
-        
-        SensorSample() : accel_x(0), accel_y(0), accel_z(0),
-                        gyro_x(0), gyro_y(0), gyro_z(0),
-                        temperature(7000), timestamp_us(0) {}
-        
-        SensorSample(s16 ax, s16 ay, s16 az, s16 gx, s16 gy, s16 gz, s16 temp, 
-                    const std::string& desc = "") 
-            : accel_x(ax), accel_y(ay), accel_z(az),
-              gyro_x(gx), gyro_y(gy), gyro_z(gz),
-              temperature(temp), description(desc), timestamp_us(0) {}
-    };
-
-    /**
-     * @struct CalibrationData
-     * @brief Calibration data for different orientations and conditions
-     */
-    struct CalibrationData {
-        SensorSample flat_horizontal;      // Device flat, Z up
-        SensorSample flat_inverted;        // Device flat, Z down
-        SensorSample vertical_x_up;        // Device vertical, X up
-        SensorSample vertical_x_down;      // Device vertical, X down
-        SensorSample vertical_y_up;        // Device vertical, Y up
-        SensorSample vertical_y_down;      // Device vertical, Y down
-        
-        CalibrationData();
-    };
-
-    /**
-     * @struct MotionPatterns
-     * @brief Common motion patterns for testing
-     */
-    struct MotionPatterns {
-        std::vector<SensorSample> stationary;
-        std::vector<SensorSample> slow_tilt;
-        std::vector<SensorSample> fast_rotation;
-        std::vector<SensorSample> linear_acceleration;
-        std::vector<SensorSample> vibration;
-        std::vector<SensorSample> freefall;
-        std::vector<SensorSample> tap_detection;
-        std::vector<SensorSample> shake_gesture;
-        
-        MotionPatterns();
-    };
-
-    /**
-     * @struct NoiseProfiles
-     * @brief Different noise patterns for robustness testing
-     */
-    struct NoiseProfiles {
-        std::vector<SensorSample> low_noise;
-        std::vector<SensorSample> medium_noise;
-        std::vector<SensorSample> high_noise;
-        std::vector<SensorSample> intermittent_spikes;
-        std::vector<SensorSample> temperature_drift;
-        
-        NoiseProfiles();
-    };
-
-    /**
-     * @struct ErrorConditions
-     * @brief Sensor data representing various error conditions
-     */
-    struct ErrorConditions {
-        SensorSample device_disconnected;     // All readings zero or invalid
-        SensorSample sensor_stuck;            // Same readings repeated
-        SensorSample out_of_range;           // Values exceeding sensor limits
-        SensorSample communication_error;     // Corrupted readings
-        SensorSample power_fluctuation;      // Inconsistent readings
-        
-        ErrorConditions();
-    };
-
-    /**
-     * @struct SelfTestData
-     * @brief Expected responses during self-test mode
-     */
-    struct SelfTestData {
-        SensorSample baseline_reading;        // Normal operation baseline
-        SensorSample accel_self_test;        // With accelerometer self-test enabled
-        SensorSample gyro_self_test;         // With gyroscope self-test enabled
-        SensorSample combined_self_test;     // Both self-tests enabled
-        
-        // Expected changes during self-test
-        s16 expected_accel_change_x;
-        s16 expected_accel_change_y;
-        s16 expected_accel_change_z;
-        s16 expected_gyro_change_x;
-        s16 expected_gyro_change_y;
-        s16 expected_gyro_change_z;
-        
-        SelfTestData();
-    };
-
-    /**
-     * @struct TemperatureProfiles
-     * @brief Temperature-related data for testing thermal behavior
-     */
-    struct TemperatureProfiles {
-        struct TempPoint {
-            s16 temp_raw;
-            double temp_celsius;
-            SensorSample sensor_reading;
-            std::string condition;
-        };
-        
-        std::vector<TempPoint> cold_conditions;     // -40°C to 0°C
-        std::vector<TempPoint> normal_conditions;   // 0°C to 40°C
-        std::vector<TempPoint> hot_conditions;      // 40°C to 85°C
-        std::vector<TempPoint> extreme_conditions;  // Beyond normal range
-        
-        TemperatureProfiles();
-    };
-
-    /**
-     * @class FixtureManager
-     * @brief Manages and provides access to all test fixtures
-     */
-    class FixtureManager {
-    public:
-        static FixtureManager& getInstance() {
-            static FixtureManager instance;
-            return instance;
-        }
-        
-        // Get fixture data
-        const CalibrationData& getCalibrationData() const { return calibration_data_; }
-        const MotionPatterns& getMotionPatterns() const { return motion_patterns_; }
-        const NoiseProfiles& getNoiseProfiles() const { return noise_profiles_; }
-        const ErrorConditions& getErrorConditions() const { return error_conditions_; }
-        const SelfTestData& getSelfTestData() const { return self_test_data_; }
-        const TemperatureProfiles& getTemperatureProfiles() const { return temperature_profiles_; }
-        
-        // Utility methods
-        SensorSample getSampleByName(const std::string& name) const;
-        std::vector<SensorSample> getSequenceByName(const std::string& name) const;
-        
-        // Add custom fixtures
-        void addCustomSample(const std::string& name, const SensorSample& sample);
-        void addCustomSequence(const std::string& name, const std::vector<SensorSample>& sequence);
-        
-        // Data validation
-        bool validateSample(const SensorSample& sample) const;
-        bool isWithinRange(s16 value, s16 min, s16 max) const;
-        
-        // Generate variations
-        SensorSample addNoise(const SensorSample& base, double noise_level) const;
-        std::vector<SensorSample> interpolateSequence(const SensorSample& start, 
-                                                     const SensorSample& end, 
-                                                     int steps) const;
-
-    private:
-        CalibrationData calibration_data_;
-        MotionPatterns motion_patterns_;
-        NoiseProfiles noise_profiles_;
-        ErrorConditions error_conditions_;
-        SelfTestData self_test_data_;
-        TemperatureProfiles temperature_profiles_;
-        
-        std::map<std::string, SensorSample> custom_samples_;
-        std::map<std::string, std::vector<SensorSample>> custom_sequences_;
-        
-        FixtureManager();
-        ~FixtureManager() = default;
-        FixtureManager(const FixtureManager&) = delete;
-        FixtureManager& operator=(const FixtureManager&) = delete;
-    };
-
-    // Convenience functions for quick access to common fixtures
-
-    /**
-     * @brief Get a stationary device reading (1g on Z-axis)
-     * @return Standard stationary sensor reading
-     */
-    inline SensorSample getStationaryReading() {
-        return SensorSample(0, 0, 16384, 0, 0, 0, 7000, "Device at rest, Z-axis up");
-    }
-
-    /**
-     * @brief Get a reading representing freefall
-     * @return Freefall sensor reading (near zero acceleration)
-     */
-    inline SensorSample getFreefallReading() {
-        return SensorSample(0, 0, 0, 0, 0, 0, 7000, "Device in freefall");
-    }
-
-    /**
-     * @brief Get a reading with device tilted 45 degrees
-     * @return 45-degree tilt sensor reading
-     */
-    inline SensorSample getTiltedReading() {
-        s16 tilted_value = static_cast<s16>(16384 / 1.414); // cos(45°) * 1g
-        return SensorSample(tilted_value, 0, tilted_value, 0, 0, 0, 7000, "45-degree tilt");
-    }
-
-    /**
-     * @brief Get a reading simulating rapid rotation
-     * @return High gyroscope activity reading
-     */
-    inline SensorSample getRotationReading() {
-        return SensorSample(2000, 1000, 14000, 15000, 12000, 8000, 7200, "Device rotating rapidly");
-    }
-
-    /**
-     * @brief Get a reading with typical noise levels
-     * @return Noisy sensor reading
-     */
-    inline SensorSample getNoisyReading() {
-        return SensorSample(150, -80, 16500, 200, -150, 100, 6950, "Reading with typical noise");
-    }
-
-    // Range validation constants
-    namespace Ranges {
-        // Accelerometer ranges (raw values for ±2g, ±4g, ±8g, ±16g)
-        constexpr s16 ACCEL_2G_MAX = 32767;
-        constexpr s16 ACCEL_4G_MAX = 32767;
-        constexpr s16 ACCEL_8G_MAX = 32767;
-        constexpr s16 ACCEL_16G_MAX = 32767;
-        
-        // Gyroscope ranges (raw values for ±250, ±500, ±1000, ±2000 °/s)
-        constexpr s16 GYRO_250_MAX = 32767;
-        constexpr s16 GYRO_500_MAX = 32767;
-        constexpr s16 GYRO_1000_MAX = 32767;
-        constexpr s16 GYRO_2000_MAX = 32767;
-        
-        // Temperature range (raw values approximately -40°C to +85°C)
-        constexpr s16 TEMP_MIN = -4760;  // Approximately -40°C
-        constexpr s16 TEMP_MAX = 8500;   // Approximately +85°C
-        
-        // 1g reference values for different accelerometer ranges
-        constexpr s16 ACCEL_1G_2G_RANGE = 16384;   // 1g in ±2g range
-        constexpr s16 ACCEL_1G_4G_RANGE = 8192;    // 1g in ±4g range
-        constexpr s16 ACCEL_1G_8G_RANGE = 4096;    // 1g in ±8g range
-        constexpr s16 ACCEL_1G_16G_RANGE = 2048;   // 1g in ±16g range
-    }
-
-    // Common test scenarios as pre-defined data sets
-    namespace TestScenarios {
-        extern const std::vector<SensorSample> INITIALIZATION_SEQUENCE;
-        extern const std::vector<SensorSample> CALIBRATION_SEQUENCE;
-        extern const std::vector<SensorSample> NORMAL_OPERATION_SEQUENCE;
-        extern const std::vector<SensorSample> ERROR_RECOVERY_SEQUENCE;
-        extern const std::vector<SensorSample> POWER_CYCLE_SEQUENCE;
-        extern const std::vector<SensorSample> SELF_TEST_SEQUENCE;
-    }
-
-} // namespace SensorDataFixtures
-
-// Convenience macros for accessing fixtures in tests
-
-#define GET_FIXTURE_MANAGER() SensorDataFixtures::FixtureManager::getInstance()
-
-#define GET_STATIONARY_READING() SensorDataFixtures::getStationaryReading()
-
-#define GET_CALIBRATION_DATA() GET_FIXTURE_MANAGER().getCalibrationData()
-
-#define GET_MOTION_PATTERNS() GET_FIXTURE_MANAGER().getMotionPatterns()
-
-#define VALIDATE_SENSOR_SAMPLE(sample) \
-    EXPECT_TRUE(GET_FIXTURE_MANAGER().validateSample(sample))
-
-#define EXPECT_ACCELEROMETER_IN_RANGE(x, y, z, range_g) \
-    do { \
-        s16 max_val = SensorDataFixtures::Ranges::ACCEL_##range_g##G_MAX; \
-        EXPECT_GE(x, -max_val); EXPECT_LE(x, max_val); \
-        EXPECT_GE(y, -max_val); EXPECT_LE(y, max_val); \
-        EXPECT_GE(z, -max_val); EXPECT_LE(z, max_val); \
-    } while(0)
-
-#define EXPECT_GYROSCOPE_IN_RANGE(x, y, z, range_dps) \
-    do { \
-        s16 max_val = SensorDataFixtures::Ranges::GYRO_##range_dps##_MAX; \
-        EXPECT_GE(x, -max_val); EXPECT_LE(x, max_val); \
-        EXPECT_GE(y, -max_val); EXPECT_LE(y, max_val); \
-        EXPECT_GE(z, -max_val); EXPECT_LE(z, max_val); \
-    } while(0)
-
-#define EXPECT_TEMPERATURE_VALID(temp) \
-    EXPECT_GE(temp, SensorDataFixtures::Ranges::TEMP_MIN); \
-    EXPECT_LE(temp, SensorDataFixtures::Ranges::TEMP_MAX)
+static inline float temp_raw_to_celsius(int16_t raw) {
+    return (float)raw / 340.0f + 36.53f;
+}
 
 #endif // SENSOR_DATA_H

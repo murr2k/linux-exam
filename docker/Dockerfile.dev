@@ -1,0 +1,333 @@
+# MPU-6050 Kernel Driver Development Environment
+# Multi-stage Docker image for comprehensive testing and development
+# Author: Murray Kopit <murr2k@gmail.com>
+
+# Base stage - Ubuntu with kernel development tools
+FROM ubuntu:22.04 AS base
+
+# Avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Install base system packages
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    git \
+    wget \
+    curl \
+    software-properties-common \
+    gnupg2 \
+    lsb-release \
+    pkg-config \
+    cmake \
+    ninja-build \
+    && rm -rf /var/lib/apt/lists/*
+
+# Development tools stage
+FROM base AS dev-tools
+
+# Install kernel development packages
+RUN apt-get update && apt-get install -y \
+    linux-headers-generic \
+    linux-libc-dev \
+    kmod \
+    dkms \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install C/C++ development tools
+RUN apt-get update && apt-get install -y \
+    gcc-11 \
+    g++-11 \
+    clang \
+    clang-format \
+    clang-tidy \
+    libc6-dev \
+    gdb \
+    valgrind \
+    strace \
+    ltrace \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set default compiler versions
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100 && \
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 100
+
+# Testing framework stage
+FROM dev-tools AS test-tools
+
+# Install Google Test and Google Mock
+RUN apt-get update && apt-get install -y \
+    libgtest-dev \
+    libgmock-dev \
+    googletest \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build Google Test libraries if not available
+RUN if [ ! -f /usr/lib/x86_64-linux-gnu/libgtest.a ]; then \
+        cd /usr/src/gtest && \
+        cmake CMakeLists.txt && \
+        make && \
+        cp lib/*.a /usr/lib/x86_64-linux-gnu/; \
+    fi
+
+# Install additional testing tools
+RUN apt-get update && apt-get install -y \
+    lcov \
+    gcovr \
+    cppcheck \
+    libcunit1-dev \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python testing tools
+RUN pip3 install pytest pytest-cov pytest-mock
+
+# Code quality stage
+FROM test-tools AS code-quality
+
+# Install static analysis and formatting tools
+RUN apt-get update && apt-get install -y \
+    clang-tools \
+    iwyu \
+    cpplint \
+    splint \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install additional code quality tools via pip
+RUN pip3 install \
+    cpplint \
+    clang-format \
+    black \
+    flake8 \
+    mypy
+
+# Simulation and I2C tools stage
+FROM code-quality AS i2c-tools
+
+# Install I2C development tools
+RUN apt-get update && apt-get install -y \
+    i2c-tools \
+    libi2c-dev \
+    python3-smbus \
+    && rm -rf /var/lib/apt/lists/*
+
+# Documentation stage
+FROM i2c-tools AS docs
+
+# Install documentation generation tools
+RUN apt-get update && apt-get install -y \
+    doxygen \
+    graphviz \
+    texlive-latex-base \
+    texlive-latex-extra \
+    && rm -rf /var/lib/apt/lists/*
+
+# Final production stage
+FROM docs AS production
+
+# Create non-root user for development
+RUN useradd -m -s /bin/bash -u 1000 developer && \
+    usermod -aG sudo developer
+
+# Install sudo and allow passwordless sudo for developer user
+RUN apt-get update && apt-get install -y sudo && \
+    echo "developer ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set up workspace
+WORKDIR /workspace
+RUN chown -R developer:developer /workspace
+
+# Switch to non-root user
+USER developer
+
+# Set environment variables for kernel module development
+ENV KERNEL_VERSION=6.6.87.2-microsoft-standard-WSL2
+ENV KDIR=/lib/modules/$KERNEL_VERSION/build
+ENV MPU6050_DEBUG=1
+
+# Create mock kernel headers structure for testing
+USER root
+RUN mkdir -p /lib/modules/$KERNEL_VERSION/build/include/linux && \
+    mkdir -p /lib/modules/$KERNEL_VERSION/build/arch/x86/include && \
+    touch /lib/modules/$KERNEL_VERSION/build/Makefile && \
+    echo "obj-m += mpu6050.o" > /lib/modules/$KERNEL_VERSION/build/Makefile.mock
+
+# Create basic kernel header mocks for testing
+RUN cat > /lib/modules/$KERNEL_VERSION/build/include/linux/module.h << 'EOF'
+#ifndef _LINUX_MODULE_H
+#define _LINUX_MODULE_H
+#define MODULE_LICENSE(x)
+#define MODULE_AUTHOR(x)
+#define MODULE_DESCRIPTION(x)
+#define MODULE_VERSION(x)
+#define module_init(x)
+#define module_exit(x)
+#define EXPORT_SYMBOL(x)
+#endif
+EOF
+
+RUN cat > /lib/modules/$KERNEL_VERSION/build/include/linux/kernel.h << 'EOF'
+#ifndef _LINUX_KERNEL_H
+#define _LINUX_KERNEL_H
+#include <stdio.h>
+#define pr_info printf
+#define pr_err printf
+#define pr_warn printf
+#define pr_debug printf
+#define KERN_INFO ""
+#define KERN_ERR ""
+#define KERN_WARNING ""
+#define KERN_DEBUG ""
+#endif
+EOF
+
+# Set permissions
+RUN chown -R developer:developer /lib/modules/$KERNEL_VERSION
+
+USER developer
+
+# Set up development environment
+RUN echo 'export PS1="[mpu6050-dev] \w$ "' >> ~/.bashrc && \
+    echo 'export PATH="/workspace/scripts:$PATH"' >> ~/.bashrc && \
+    echo 'export EDITOR=vi' >> ~/.bashrc
+
+# Install development convenience tools
+USER root
+RUN apt-get update && apt-get install -y \
+    vim \
+    nano \
+    htop \
+    tree \
+    tmux \
+    screen \
+    && rm -rf /var/lib/apt/lists/*
+
+USER developer
+
+# Create helpful development scripts
+RUN mkdir -p ~/.local/bin
+
+RUN cat > ~/.local/bin/build-kernel << 'EOF'
+#!/bin/bash
+cd /workspace
+make clean
+make modules
+EOF
+
+RUN cat > ~/.local/bin/build-tests << 'EOF'
+#!/bin/bash
+cd /workspace/tests
+make clean
+make all
+EOF
+
+RUN cat > ~/.local/bin/run-tests << 'EOF'
+#!/bin/bash
+cd /workspace/tests
+make test
+EOF
+
+RUN cat > ~/.local/bin/validate-all << 'EOF'
+#!/bin/bash
+cd /workspace
+./scripts/validate-build.sh -v
+EOF
+
+RUN chmod +x ~/.local/bin/*
+
+# Add local bin to PATH
+RUN echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+
+# Set up git configuration template
+RUN git config --global user.name "MPU6050 Developer" && \
+    git config --global user.email "developer@example.com" && \
+    git config --global init.defaultBranch main
+
+# Create development directory structure
+RUN mkdir -p /workspace/{build,tests/{build,results},coverage,docs}
+
+# Entry point script
+USER root
+RUN cat > /entrypoint.sh << 'EOF'
+#!/bin/bash
+
+echo "MPU-6050 Kernel Driver Development Environment"
+echo "=============================================="
+echo "Kernel Version: $KERNEL_VERSION"
+echo "Workspace: /workspace"
+echo ""
+echo "Available commands:"
+echo "  build-kernel  - Build kernel module"
+echo "  build-tests   - Build test suite"
+echo "  run-tests     - Run all tests"  
+echo "  validate-all  - Run complete validation"
+echo ""
+
+# If arguments provided, run them; otherwise start interactive shell
+if [ $# -eq 0 ]; then
+    exec /bin/bash
+else
+    exec "$@"
+fi
+EOF
+
+RUN chmod +x /entrypoint.sh
+
+USER developer
+
+# Health check script
+USER root
+RUN cat > /healthcheck.sh << 'EOF'
+#!/bin/bash
+# Basic health check for development environment
+
+# Check if required tools are available
+for tool in gcc make git pkg-config; do
+    if ! command -v $tool >/dev/null 2>&1; then
+        echo "ERROR: $tool not found"
+        exit 1
+    fi
+done
+
+# Check if workspace is accessible
+if [ ! -d /workspace ]; then
+    echo "ERROR: Workspace not accessible"
+    exit 1
+fi
+
+# Check if mock kernel headers exist
+if [ ! -f /lib/modules/$KERNEL_VERSION/build/Makefile ]; then
+    echo "ERROR: Mock kernel build environment not set up"
+    exit 1
+fi
+
+echo "Environment health check passed"
+exit 0
+EOF
+
+RUN chmod +x /healthcheck.sh
+
+# Set up volumes and entry point
+VOLUME ["/workspace"]
+WORKDIR /workspace
+
+ENTRYPOINT ["/entrypoint.sh"]
+
+# Add labels for container metadata
+LABEL maintainer="Murray Kopit <murr2k@gmail.com>" \
+      description="MPU-6050 Kernel Driver Development Environment" \
+      version="1.0.0" \
+      org.opencontainers.image.title="MPU-6050 Development Environment" \
+      org.opencontainers.image.description="Complete development environment for MPU-6050 kernel driver" \
+      org.opencontainers.image.authors="Murray Kopit <murr2k@gmail.com>" \
+      org.opencontainers.image.source="https://github.com/murr2k/mpu6050-driver" \
+      org.opencontainers.image.documentation="https://github.com/murr2k/mpu6050-driver/README.md"
+
+# Expose any ports if needed (e.g., for debugging)
+EXPOSE 1234
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD /healthcheck.sh

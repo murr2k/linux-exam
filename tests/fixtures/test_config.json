@@ -1,0 +1,35 @@
+{
+  "test_timeout": 30,
+  "mock_i2c_address": 104,
+  "expected_ranges": {
+    "accel_x": [
+      -32768,
+      32767
+    ],
+    "accel_y": [
+      -32768,
+      32767
+    ],
+    "accel_z": [
+      -32768,
+      32767
+    ],
+    "gyro_x": [
+      -32768,
+      32767
+    ],
+    "gyro_y": [
+      -32768,
+      32767
+    ],
+    "gyro_z": [
+      -32768,
+      32767
+    ],
+    "temperature": [
+      -40000,
+      85000
+    ]
+  },
+  "test_i2c_bus": "/dev/i2c-1"
+}

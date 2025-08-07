@@ -6,7 +6,7 @@ MODULE_NAME := mpu6050
 
 # Source files
 obj-m += $(MODULE_NAME).o
-$(MODULE_NAME)-objs := drivers/mpu6050_main.o
+$(MODULE_NAME)-objs := drivers/mpu6050_driver.o
 
 # Kernel build directory
 KERNEL_VERSION := $(shell uname -r)
@@ -21,8 +21,14 @@ PWD := $(shell pwd)
 # Compiler flags
 ccflags-y := -Wall -Wextra -DDEBUG -I$(PWD)/include
 
+# Additional flags for kernel module
+EXTRA_CFLAGS += -I$(PWD)/include -DCONFIG_MPU6050_DEBUG=1
+
+# Coverage directories
+COVERAGE_DIR := build/coverage
+
 # Build targets
-.PHONY: all clean install uninstall test lint docker help
+.PHONY: all clean install uninstall test lint docker help coverage-badges coverage-gate coverage-dashboard
 
 # Default target
 all: modules
@@ -139,12 +145,43 @@ check-deps:
 	@if command -v cppcheck >/dev/null 2>&1; then echo -n "cppcheck ✓ "; fi
 	@echo ""
 
+# Coverage Badge Generation
+coverage-badges:
+	@echo "Generating coverage badges..."
+	@chmod +x scripts/generate-coverage-badge.py
+	@python3 scripts/generate-coverage-badge.py --input $(COVERAGE_DIR)/coverage.info --update-readme
+	@echo "Coverage badges updated in README.md"
+
+# Coverage Quality Gate
+coverage-gate:
+	@echo "Running coverage quality gate..."
+	@chmod +x scripts/coverage-gate.py
+	@python3 scripts/coverage-gate.py --input $(COVERAGE_DIR)/coverage.info --save-history
+
+# Coverage Dashboard Update
+coverage-dashboard: coverage-badges
+	@echo "Coverage dashboard updated"
+	@echo "View at: docs/TEST_COVERAGE_DASHBOARD.md"
+
+# Coverage Report Generation
+coverage-report:
+	@echo "Generating comprehensive coverage report..."
+	@mkdir -p $(COVERAGE_DIR)
+	@if [ -f $(COVERAGE_DIR)/coverage.info ]; then \
+		python3 scripts/generate-coverage-badge.py --input $(COVERAGE_DIR)/coverage.info --format both --output docs/badges; \
+		python3 scripts/coverage-gate.py --input $(COVERAGE_DIR)/coverage.info --format json --output $(COVERAGE_DIR)/quality_gate_report.json --save-history; \
+		echo "Coverage reports generated in docs/badges/ and $(COVERAGE_DIR)/"; \
+	else \
+		echo "No coverage data found. Run 'make test COVERAGE=1' first."; \
+	fi
+
 # CI/CD pipeline
-ci: clean test lint modules
+ci: clean test lint modules coverage-report
 	@echo "=== CI Pipeline Completed ==="
 	@echo "✓ Tests passed"
 	@echo "✓ Linting passed"  
 	@echo "✓ Module built successfully"
+	@echo "✓ Coverage reports generated"
 
 # Development setup
 setup:
@@ -196,6 +233,10 @@ help:
 	@echo "  setup       - Install development dependencies"
 	@echo "  status      - Show current status"
 	@echo "  ci          - Run CI/CD pipeline"
+	@echo "  coverage-badges    - Generate coverage badges for README"
+	@echo "  coverage-gate      - Run coverage quality gate"
+	@echo "  coverage-dashboard - Update coverage dashboard"
+	@echo "  coverage-report    - Generate comprehensive coverage reports"
 	@echo "  help        - Show this help"
 	@echo ""
 	@echo "Examples:"

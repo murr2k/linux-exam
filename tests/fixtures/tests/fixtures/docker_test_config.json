@@ -1,0 +1,16 @@
+{
+  "image": "ubuntu:22.04",
+  "volumes": [
+    "./:/workspace"
+  ],
+  "environment": {
+    "DEBIAN_FRONTEND": "noninteractive",
+    "TEST_MODE": "docker"
+  },
+  "commands": [
+    "apt-get update",
+    "apt-get install -y build-essential linux-headers-generic",
+    "make clean",
+    "make test"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "stages": [
+    "build",
+    "test",
+    "coverage"
+  ],
+  "build": {
+    "dependencies": [
+      "gcc",
+      "g++",
+      "make",
+      "linux-headers-generic"
+    ],
+    "commands": [
+      "make clean",
+      "make modules"
+    ]
+  },
+  "test": {
+    "dependencies": [
+      "cunit",
+      "lcov",
+      "python3",
+      "pytest"
+    ],
+    "commands": [
+      "./scripts/test-wrapper.sh",
+      "python3 tests/test-discovery.py"
+    ],
+    "artifacts": [
+      "test-results/",
+      "coverage/"
+    ]
+  },
+  "coverage": {
+    "min_threshold": 80,
+    "format": "lcov",
+    "exclude": [
+      "tests/",
+      "build/"
+    ]
+  }
+}

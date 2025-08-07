@@ -1,0 +1,30 @@
+Build validation started at Wed Aug  6 19:54:09 PDT 2025
+[0;34m[INFO][0m Starting MPU-6050 build validation
+[0;34m[INFO][0m Project root: /home/murr2k/projects/linux-exam
+[0;34m[INFO][0m Gathering system information...
+=== System Information ===
+Date: Wed Aug  6 19:54:09 PDT 2025
+Hostname: DESKTOP-MALMQAC
+Kernel: 6.6.87.2-microsoft-standard-WSL2
+Distribution: Ubuntu 22.04.5 LTS
+Architecture: x86_64
+CPUs: 8
+Memory: 15Gi
+
+[0;34m[INFO][0m Checking basic build tools...
+[0;34m[VERBOSE][0m gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+[0;34m[VERBOSE][0m make: GNU Make 4.3
+[0;34m[VERBOSE][0m git: git version 2.34.1
+[0;34m[VERBOSE][0m pkg-config: 0.29.2
+[0;32m[SUCCESS][0m Basic tools check passed
+[0;34m[INFO][0m Checking test dependencies...
+[0;31m[ERROR][0m Google Test not found
+[0;31m[ERROR][0m Please install Google Test or use --install-deps
+[0;34m[INFO][0m Validating test builds...
+[0;34m[INFO][0m Building tests...
+Checking dependencies...
+Error: Google Test not found. Install with: sudo apt-get install libgtest-dev libgmock-dev
+make: *** [Makefile:87: check-deps] Error 1
+[0;31m[ERROR][0m Test build failed
+[0;34m[INFO][0m Running smoke tests...
+[0;34m[INFO][0m Generating comprehensive report: build/validation-report.txt
