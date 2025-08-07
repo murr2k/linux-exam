@@ -1,0 +1,60 @@
+name: Pretest - Environment Discovery
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/github-actions-pretest.sh'
+      - '.github/workflows/pretest-discovery.yml'
+
+jobs:
+  discover-environment:
+    name: Discover GitHub Actions Environment
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Run environment discovery
+        run: |
+          chmod +x scripts/github-actions-pretest.sh
+          ./scripts/github-actions-pretest.sh
+      
+      - name: Save discovery report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: environment-discovery-report
+          path: |
+            *.txt
+            *.log
+          retention-days: 7
+          
+  discover-on-multiple-runners:
+    name: Discover on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-latest]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Run environment discovery
+        run: |
+          echo "================================================"
+          echo "Runner: ${{ matrix.os }}"
+          echo "================================================"
+          chmod +x scripts/github-actions-pretest.sh
+          ./scripts/github-actions-pretest.sh > discovery-${{ matrix.os }}.txt 2>&1
+          
+      - name: Upload discovery report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: discovery-report-${{ matrix.os }}
+          path: discovery-${{ matrix.os }}.txt
+          retention-days: 7
