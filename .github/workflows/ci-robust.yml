@@ -103,7 +103,7 @@ jobs:
           
           # Run the robust setup script
           if [ -f scripts/setup-ci-env.sh ]; then
-            bash scripts/setup-ci-env.sh
+            bash scripts/ci-setup-wrapper.sh
           else
             echo "Setup script not found, using fallback setup"
             # Fallback setup
@@ -181,7 +181,7 @@ jobs:
         run: |
           # Quick setup if cache miss
           if [ ! -f /tmp/ci-setup-marker ]; then
-            bash scripts/setup-ci-env.sh 2>/dev/null || {
+            bash scripts/ci-setup-wrapper.sh 2>/dev/null || {
               echo "Setup script failed, using minimal setup"
               sudo apt-get update -qq && sudo apt-get install -y build-essential make gcc
             }
@@ -288,7 +288,7 @@ jobs:
         run: |
           # Quick setup if cache miss
           if [ ! -f /tmp/ci-setup-marker ]; then
-            bash scripts/setup-ci-env.sh 2>/dev/null || {
+            bash scripts/ci-setup-wrapper.sh 2>/dev/null || {
               echo "Setup script failed, using minimal setup"
               sudo apt-get update -qq && sudo apt-get install -y build-essential python3
             }

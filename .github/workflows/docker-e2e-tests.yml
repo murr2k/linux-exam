@@ -193,7 +193,7 @@ jobs:
       
       - name: Upload test artifacts
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: test-results-${{ matrix.test-config.name }}-${{ github.run_number }}
           path: tests/e2e/docker/artifacts/${{ matrix.test-config.name }}/
@@ -263,7 +263,7 @@ jobs:
       
       - name: Upload compose artifacts
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: docker-compose-logs-${{ github.run_number }}
           path: tests/e2e/docker/compose-logs.txt
@@ -284,7 +284,7 @@ jobs:
     
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: test-artifacts
       
@@ -334,7 +334,7 @@ jobs:
             });
       
       - name: Upload summary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: test-summary-${{ github.run_number }}
           path: test-summary.md

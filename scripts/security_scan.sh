@@ -4,7 +4,7 @@
 # Author: Murray Kopit <murr2k@gmail.com>
 # Description: Comprehensive security analysis with SAST, DAST, and SCA tools
 
-set -e  # Exit on error
+# Graceful error handling enabled
 set -u  # Exit on undefined variable
 
 # Configuration

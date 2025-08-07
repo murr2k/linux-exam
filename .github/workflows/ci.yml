@@ -76,7 +76,7 @@ jobs:
       - name: Setup CI environment
         run: |
           sudo apt-get update
-          sudo ./scripts/ci-setup.sh
+          bash scripts/ci-setup-wrapper.sh
 
       - name: Build project
         run: |
@@ -113,7 +113,7 @@ jobs:
       - name: Setup CI environment
         run: |
           sudo apt-get update
-          sudo ./scripts/ci-setup.sh
+          bash scripts/ci-setup-wrapper.sh
 
       - name: Run linting
         run: |
@@ -157,7 +157,7 @@ jobs:
       - name: Setup CI environment
         run: |
           sudo apt-get update
-          sudo ./scripts/ci-setup.sh
+          bash scripts/ci-setup-wrapper.sh
 
       - name: Cache Docker layers
         uses: actions/cache@v4
@@ -278,7 +278,7 @@ jobs:
       - name: Setup security scanning environment
         run: |
           sudo apt-get update
-          sudo ./scripts/ci-setup.sh
+          bash scripts/ci-setup-wrapper.sh
 
       - name: Run comprehensive security scan - ${{ matrix.scan-type }}
         timeout-minutes: ${{ matrix.timeout }}
@@ -308,7 +308,7 @@ jobs:
           severity: 'CRITICAL,HIGH,MEDIUM'
 
       - name: Upload security scan results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v2
         if: always()
         with:
           sarif_file: security-results/trivy-results.sarif

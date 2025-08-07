@@ -90,7 +90,7 @@ jobs:
       - name: Setup security scanning environment
         run: |
           sudo apt-get update
-          sudo ./scripts/ci-setup.sh
+          bash scripts/ci-setup-wrapper.sh
 
       - name: Install SAST tools
         run: |
@@ -148,7 +148,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Security
         if: matrix.tool == 'semgrep' && always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v2
         with:
           sarif_file: security-results/sast/semgrep-results.sarif
           category: semgrep
@@ -222,7 +222,7 @@ jobs:
       - name: Setup build environment
         run: |
           sudo apt-get update
-          sudo ./scripts/ci-setup.sh
+          bash scripts/ci-setup-wrapper.sh
 
       - name: Install fuzzing and memory analysis tools
         run: |
@@ -484,7 +484,7 @@ EOF
 
       - name: Upload SARIF to GitHub Security
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v2
         with:
           sarif_file: security-pipeline-results.sarif
           category: security-pipeline
