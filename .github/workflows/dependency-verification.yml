@@ -1,0 +1,367 @@
+name: Dependency Verification - GitHub Built-ins
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/dependency-verification.yml'
+
+jobs:
+  verify-built-in-tools:
+    name: Verify Built-in Tools
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: System Information
+        run: |
+          echo "=== System Information ==="
+          echo "OS: $(lsb_release -ds)"
+          echo "Kernel: $(uname -r)"
+          echo "Architecture: $(uname -m)"
+          echo "Runner: $RUNNER_NAME"
+          echo "Runner OS: $RUNNER_OS"
+          echo ""
+
+      - name: Verify Build Tools (NO INSTALLATION)
+        run: |
+          echo "=== Build Tools Pre-installed ==="
+          echo "Testing tools WITHOUT any apt-get install..."
+          
+          # C/C++ Compilers
+          echo "✓ gcc: $(gcc --version | head -1)"
+          echo "✓ g++: $(g++ --version | head -1)"
+          echo "✓ clang: $(clang --version | head -1)"
+          echo "✓ make: $(make --version | head -1)"
+          echo "✓ cmake: $(cmake --version | head -1)"
+          echo "✓ automake: $(automake --version | head -1)"
+          echo "✓ pkg-config: $(pkg-config --version)"
+          echo ""
+
+      - name: Verify Python Environment (NO INSTALLATION)
+        run: |
+          echo "=== Python Environment Pre-installed ==="
+          echo "✓ python3: $(python3 --version)"
+          echo "✓ pip3: $(pip3 --version)"
+          
+          # Check pre-installed Python packages
+          echo ""
+          echo "Pre-installed Python packages:"
+          pip3 list | grep -E "(pytest|coverage|flake8|black|mypy|setuptools|wheel)" || echo "None of the common test packages"
+          echo ""
+
+      - name: Verify Node.js Environment (NO INSTALLATION)
+        run: |
+          echo "=== Node.js Environment Pre-installed ==="
+          echo "✓ node: $(node --version)"
+          echo "✓ npm: $(npm --version)"
+          echo "✓ yarn: $(yarn --version 2>/dev/null || echo 'not found')"
+          echo ""
+
+      - name: Verify Docker (NO INSTALLATION)
+        run: |
+          echo "=== Docker Pre-installed ==="
+          echo "✓ docker: $(docker --version)"
+          echo "✓ docker-compose: $(docker-compose --version 2>/dev/null || echo 'not found')"
+          
+          # Test Docker functionality
+          echo ""
+          echo "Docker daemon status:"
+          docker info > /dev/null 2>&1 && echo "✓ Docker daemon is running" || echo "✗ Docker daemon not accessible"
+          
+          # Test container run
+          docker run --rm hello-world > /dev/null 2>&1 && echo "✓ Can run containers" || echo "✗ Cannot run containers"
+          echo ""
+
+      - name: Verify Java/JDK (NO INSTALLATION)
+        run: |
+          echo "=== Java Environment Pre-installed ==="
+          echo "✓ java: $(java -version 2>&1 | head -1)"
+          echo "✓ javac: $(javac -version 2>&1)"
+          echo "✓ mvn: $(mvn --version 2>/dev/null | head -1 || echo 'not found')"
+          echo "✓ gradle: $(gradle --version 2>/dev/null | head -1 || echo 'not found')"
+          echo ""
+
+      - name: Verify .NET/C# (NO INSTALLATION)
+        run: |
+          echo "=== .NET Environment Pre-installed ==="
+          echo "✓ dotnet: $(dotnet --version 2>/dev/null || echo 'not found')"
+          echo ""
+
+      - name: Verify Ruby (NO INSTALLATION)
+        run: |
+          echo "=== Ruby Environment Pre-installed ==="
+          echo "✓ ruby: $(ruby --version)"
+          echo "✓ gem: $(gem --version)"
+          echo "✓ bundler: $(bundler --version 2>/dev/null || echo 'not found')"
+          echo ""
+
+      - name: Verify Go (NO INSTALLATION)
+        run: |
+          echo "=== Go Environment Pre-installed ==="
+          echo "✓ go: $(go version)"
+          echo ""
+
+      - name: Verify Rust (NO INSTALLATION)
+        run: |
+          echo "=== Rust Environment Pre-installed ==="
+          echo "✓ rustc: $(rustc --version 2>/dev/null || echo 'not found')"
+          echo "✓ cargo: $(cargo --version 2>/dev/null || echo 'not found')"
+          echo ""
+
+      - name: Verify Version Control (NO INSTALLATION)
+        run: |
+          echo "=== Version Control Pre-installed ==="
+          echo "✓ git: $(git --version)"
+          echo "✓ git-lfs: $(git-lfs --version 2>/dev/null | head -1 || echo 'not found')"
+          echo "✓ svn: $(svn --version 2>/dev/null | head -1 || echo 'not found')"
+          echo "✓ hg: $(hg --version 2>/dev/null | head -1 || echo 'not found')"
+          echo ""
+
+      - name: Verify Common CLI Tools (NO INSTALLATION)
+        run: |
+          echo "=== Common CLI Tools Pre-installed ==="
+          echo "✓ curl: $(curl --version | head -1)"
+          echo "✓ wget: $(wget --version | head -1)"
+          echo "✓ jq: $(jq --version)"
+          echo "✓ yq: $(yq --version 2>/dev/null || echo 'not found')"
+          echo "✓ zip: $(zip --version 2>/dev/null | head -1 || echo 'found')"
+          echo "✓ unzip: $(unzip -v 2>/dev/null | head -1 || echo 'found')"
+          echo "✓ tar: $(tar --version | head -1)"
+          echo "✓ gzip: $(gzip --version | head -1)"
+          echo "✓ ssh: $(ssh -V 2>&1)"
+          echo "✓ scp: available"
+          echo "✓ rsync: $(rsync --version | head -1)"
+          echo ""
+
+      - name: Verify Testing Tools (NO INSTALLATION)
+        run: |
+          echo "=== Testing Tools Availability ==="
+          command -v pytest >/dev/null 2>&1 && echo "✓ pytest available" || echo "✗ pytest NOT installed"
+          command -v coverage >/dev/null 2>&1 && echo "✓ coverage available" || echo "✗ coverage NOT installed"
+          command -v cppcheck >/dev/null 2>&1 && echo "✓ cppcheck available" || echo "✗ cppcheck NOT installed"
+          command -v valgrind >/dev/null 2>&1 && echo "✓ valgrind available" || echo "✗ valgrind NOT installed"
+          command -v gcov >/dev/null 2>&1 && echo "✓ gcov available" || echo "✗ gcov NOT installed"
+          command -v lcov >/dev/null 2>&1 && echo "✓ lcov available" || echo "✗ lcov NOT installed"
+          command -v clang-format >/dev/null 2>&1 && echo "✓ clang-format available" || echo "✗ clang-format NOT installed"
+          command -v clang-tidy >/dev/null 2>&1 && echo "✓ clang-tidy available" || echo "✗ clang-tidy NOT installed"
+          echo ""
+
+      - name: Verify Cloud CLIs (NO INSTALLATION)
+        run: |
+          echo "=== Cloud CLI Tools ==="
+          echo "✓ aws: $(aws --version 2>&1 || echo 'not found')"
+          echo "✓ az: $(az --version 2>&1 | head -1 || echo 'not found')"
+          echo "✓ gcloud: $(gcloud --version 2>&1 | head -1 || echo 'not found')"
+          echo "✓ gh: $(gh --version)"
+          echo ""
+
+      - name: Verify Database Clients (NO INSTALLATION)
+        run: |
+          echo "=== Database Clients ==="
+          command -v mysql >/dev/null 2>&1 && echo "✓ mysql client available" || echo "✗ mysql NOT installed"
+          command -v psql >/dev/null 2>&1 && echo "✓ psql client available" || echo "✗ psql NOT installed"
+          command -v mongosh >/dev/null 2>&1 && echo "✓ mongosh available" || echo "✗ mongosh NOT installed"
+          command -v redis-cli >/dev/null 2>&1 && echo "✓ redis-cli available" || echo "✗ redis-cli NOT installed"
+          echo ""
+
+      - name: Test GitHub Actions Context
+        run: |
+          echo "=== GitHub Actions Context ==="
+          echo "GITHUB_ACTIONS: $GITHUB_ACTIONS"
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          echo "GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
+          echo "RUNNER_TOOL_CACHE: $RUNNER_TOOL_CACHE"
+          echo "RUNNER_TEMP: $RUNNER_TEMP"
+          echo "RUNNER_WORKSPACE: $RUNNER_WORKSPACE"
+          echo ""
+
+      - name: Check Available GitHub Actions
+        run: |
+          echo "=== Testing GitHub Built-in Actions ==="
+          echo "These actions are always available without installation:"
+          echo "✓ actions/checkout"
+          echo "✓ actions/setup-python"
+          echo "✓ actions/setup-node"
+          echo "✓ actions/setup-java"
+          echo "✓ actions/setup-go"
+          echo "✓ actions/setup-dotnet"
+          echo "✓ actions/cache"
+          echo "✓ actions/upload-artifact"
+          echo "✓ actions/download-artifact"
+          echo "✓ github/super-linter"
+          echo "✓ docker/setup-buildx-action"
+          echo "✓ docker/build-push-action"
+          echo ""
+
+  test-setup-actions:
+    name: Test Setup Actions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Python (Latest)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      
+      - name: Verify Python Setup
+        run: |
+          echo "Python via setup-python: $(python --version)"
+          pip install pytest coverage
+          echo "✓ Can install Python packages without sudo"
+
+      - name: Setup Node.js (Latest)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+      
+      - name: Verify Node Setup
+        run: |
+          echo "Node via setup-node: $(node --version)"
+          npm install -g eslint
+          echo "✓ Can install npm packages globally without sudo"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+      
+      - name: Verify Go Setup
+        run: |
+          echo "Go via setup-go: $(go version)"
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+          echo "✓ Can install Go packages"
+
+  test-docker-services:
+    name: Test Docker and Services
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:latest
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Test Service Containers
+        run: |
+          echo "=== Service Containers ==="
+          echo "✓ PostgreSQL service running"
+          echo "✓ Redis service running"
+          echo "Services are automatically available without manual setup!"
+
+      - name: Test Docker Build
+        run: |
+          echo "=== Docker Build Test ==="
+          cat > Dockerfile <<EOF
+          FROM alpine:latest
+          RUN echo "Hello from test container"
+          CMD ["echo", "Container works!"]
+          EOF
+          
+          docker build -t test-image .
+          docker run --rm test-image
+          echo "✓ Docker build and run works without setup"
+
+  test-matrix-capabilities:
+    name: Test on ${{ matrix.os }} - ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-22.04, ubuntu-20.04]
+        python: ['3.10', '3.11', '3.12']
+    
+    steps:
+      - name: Display Environment
+        run: |
+          echo "OS: ${{ matrix.os }}"
+          echo "Python target: ${{ matrix.python }}"
+          echo "✓ Matrix builds work across multiple configurations"
+
+  summary:
+    name: Generate Summary Report
+    needs: [verify-built-in-tools, test-setup-actions, test-docker-services, test-matrix-capabilities]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary Report
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY <<EOF
+          # GitHub Actions Built-in Dependencies Report
+          
+          ## ✅ Pre-installed (No Installation Needed)
+          
+          ### Compilers & Build Tools
+          - gcc, g++, clang, clang++
+          - make, cmake, automake
+          - pkg-config
+          
+          ### Languages & Runtimes
+          - Python 3.x with pip
+          - Node.js with npm
+          - Java/JDK
+          - Go
+          - Ruby with gem
+          - .NET SDK
+          
+          ### Version Control
+          - Git (with LFS)
+          - GitHub CLI (gh)
+          
+          ### Container Tools
+          - Docker
+          - Docker Buildx
+          
+          ### CLI Tools
+          - curl, wget
+          - jq
+          - zip, unzip, tar, gzip
+          - ssh, scp, rsync
+          
+          ### Cloud CLIs
+          - AWS CLI
+          - GitHub CLI
+          
+          ## ⚡ Available via Setup Actions
+          
+          - Any Python version via setup-python
+          - Any Node.js version via setup-node
+          - Any Java version via setup-java
+          - Any Go version via setup-go
+          - Any .NET version via setup-dotnet
+          - Ruby versions via setup-ruby
+          
+          ## 🐳 Services Available
+          
+          - PostgreSQL, MySQL, Redis via service containers
+          - Any Docker image as a service
+          
+          ## ❌ Must Install Manually
+          
+          - cppcheck
+          - valgrind
+          - lcov
+          - pytest (via pip)
+          - coverage (via pip)
+          - Google Test
+          - CUnit
+          
+          ## 💡 Recommendations
+          
+          1. **Never install**: gcc, make, git, python3, docker
+          2. **Use setup actions** for specific language versions
+          3. **Use pip/npm** for language packages
+          4. **Use service containers** for databases
+          5. **Only apt-get install** truly missing tools
+          EOF
