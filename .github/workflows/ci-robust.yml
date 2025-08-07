@@ -101,14 +101,15 @@ jobs:
           # Make scripts executable
           find scripts/ -name "*.sh" -type f -exec chmod +x {} \; 2>/dev/null || true
           
-          # Run the robust setup script
-          if [ -f scripts/setup-ci-env.sh ]; then
-            bash scripts/ci-setup-wrapper.sh
+          # Run the smart setup script
+          if [ -f scripts/ci-setup-smart.sh ]; then
+            chmod +x scripts/ci-setup-smart.sh
+            ./scripts/ci-setup-smart.sh
           else
-            echo "Setup script not found, using fallback setup"
-            # Fallback setup
-            sudo apt-get update -qq || true
-            sudo apt-get install -y build-essential make gcc git || true
+            echo "Smart setup script not found, verifying critical tools"
+            # Just verify critical tools exist
+            command -v gcc || exit 1
+            command -v make || exit 1
           fi
           
           # Read capabilities from the generated file
@@ -302,9 +303,10 @@ jobs:
         run: |
           echo "Running ${{ matrix.test-category }} tests using robust wrapper..."
           
-          # Use the test wrapper with specific category
-          if [ -f scripts/test-wrapper.sh ]; then
-            if ! timeout 1800 bash scripts/test-wrapper.sh --category ${{ matrix.test-category }} --verbose; then
+          # Use the smart test runner
+          if [ -f scripts/test-runner-smart.sh ]; then
+            chmod +x scripts/test-runner-smart.sh
+            if ! timeout 1800 ./scripts/test-runner-smart.sh ${{ matrix.test-category }}; then
               echo "::error::Test execution FAILED for ${{ matrix.test-category }}"
               exit 1  # Fail the pipeline on test failures
             fi

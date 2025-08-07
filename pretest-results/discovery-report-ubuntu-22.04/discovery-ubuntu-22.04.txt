@@ -1,0 +1,176 @@
+================================================
+GitHub Actions Environment Discovery
+================================================
+
+Date: Thu Aug  7 06:02:16 UTC 2025
+Hostname: pkrvm76nib4usnx
+User: runner
+PWD: /home/runner/work/linux-exam/linux-exam
+
+✅ Running in GitHub Actions
+Runner OS: Linux
+Runner Name: GitHub Actions 1000003966
+Runner Tool Cache: /opt/hostedtoolcache
+GitHub Workspace: /home/runner/work/linux-exam/linux-exam
+
+================================================
+System Information
+================================================
+OS Release:
+NAME="Ubuntu"
+VERSION_ID="22.04"
+VERSION="22.04.5 LTS (Jammy Jellyfish)"
+VERSION_CODENAME=jammy
+ID=ubuntu
+ID_LIKE=debian
+
+Kernel: 6.8.0-1031-azure
+Architecture: x86_64
+CPU Info: 4 cores
+Memory: 15Gi
+Disk Space: 23G available
+
+================================================
+Build Tools Required by Our Tests
+================================================
+
+=== Core Build Tools (CRITICAL) ===
+✅ [BUILD] gcc: AVAILABLE - gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+✅ [BUILD] g++: AVAILABLE - g++ (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0
+✅ [BUILD] make: AVAILABLE - GNU Make 4.3
+✅ [BUILD] git: AVAILABLE - git version 2.50.1
+✅ [BUILD] bash: AVAILABLE - version check not implemented
+✅ [BUILD] sh: AVAILABLE - version check not implemented
+
+=== Additional Compilers ===
+✅ [BUILD] clang: AVAILABLE - Ubuntu clang version 14.0.0-1ubuntu1.1
+✅ [BUILD] clang++: AVAILABLE - Ubuntu clang version 14.0.0-1ubuntu1.1
+
+=== Build Systems ===
+✅ [BUILD] cmake: AVAILABLE - cmake version 3.31.6
+✅ [BUILD] automake: AVAILABLE - version check not implemented
+✅ [BUILD] autoconf: AVAILABLE - version check not implemented
+✅ [BUILD] pkg-config: AVAILABLE - version check not implemented
+
+=== Python Tools (Required for E2E tests) ===
+✅ [PYTHON] python3: AVAILABLE - Python 3.10.12
+✅ [PYTHON] pip3: AVAILABLE - pip 22.0.2 from /usr/lib/python3/dist-packages/pip (python 3.10)
+⚠️  [PYTHON] pytest: NOT FOUND (optional)
+⚠️  [PYTHON] coverage: NOT FOUND (optional)
+
+=== Testing Tools ===
+⚠️  [TEST] cppcheck: NOT FOUND (optional)
+⚠️  [TEST] valgrind: NOT FOUND (optional)
+⚠️  [TEST] lcov: NOT FOUND (optional)
+✅ [TEST] gcov: AVAILABLE - version check not implemented
+⚠️  [TEST] gcovr: NOT FOUND (optional)
+
+=== Linting/Formatting Tools ===
+✅ [LINT] clang-format: AVAILABLE - version check not implemented
+✅ [LINT] clang-tidy: AVAILABLE - version check not implemented
+⚠️  [LINT] flawfinder: NOT FOUND (optional)
+⚠️  [LINT] sparse: NOT FOUND (optional)
+⚠️  [LINT] coccinelle: NOT FOUND (optional)
+
+=== Security Scanning Tools ===
+⚠️  [SECURITY] bandit: NOT FOUND (optional)
+⚠️  [SECURITY] safety: NOT FOUND (optional)
+⚠️  [SECURITY] trivy: NOT FOUND (optional)
+
+=== Container Tools ===
+✅ [CONTAINER] docker: AVAILABLE - Docker version 28.0.4, build b8034c0
+⚠️  [CONTAINER] docker-compose: NOT FOUND (optional)
+✅ [CONTAINER] podman: AVAILABLE - version check not implemented
+
+=== Other Utilities ===
+✅ [UTIL] wget: AVAILABLE - version check not implemented
+✅ [UTIL] curl: AVAILABLE - version check not implemented
+✅ [UTIL] jq: AVAILABLE - version check not implemented
+✅ [UTIL] tar: AVAILABLE - version check not implemented
+✅ [UTIL] gzip: AVAILABLE - version check not implemented
+✅ [UTIL] zip: AVAILABLE - version check not implemented
+✅ [UTIL] unzip: AVAILABLE - version check not implemented
+✅ [UTIL] sed: AVAILABLE - version check not implemented
+✅ [UTIL] awk: AVAILABLE - version check not implemented
+✅ [UTIL] grep: AVAILABLE - version check not implemented
+✅ [UTIL] find: AVAILABLE - version check not implemented
+✅ [UTIL] sudo: AVAILABLE - version check not implemented
+
+================================================
+Package Status (via dpkg)
+================================================
+
+=== Development Packages ===
+✅ [DEV] Package build-essential: INSTALLED - version 12.9ubuntu3
+⚠️  [DEV] Package linux-headers-generic: NOT INSTALLED
+⚠️  [DEV] Package linux-libc-dev: NOT INSTALLED
+⚠️  [DEV] Package libc6-dev: NOT INSTALLED
+
+=== Testing Libraries ===
+⚠️  [TEST] Package libgtest-dev: NOT INSTALLED
+⚠️  [TEST] Package libcunit1-dev: NOT INSTALLED
+⚠️  [TEST] Package libcunit1: NOT INSTALLED
+
+=== Python Packages ===
+✅ [PYTHON] Package python3-pip: INSTALLED - version 22.0.2+dfsg-1ubuntu0.6
+✅ [PYTHON] Package python3-dev: INSTALLED - version 3.10.6-1~22.04.1
+✅ [PYTHON] Package python3-venv: INSTALLED - version 3.10.6-1~22.04.1
+⚠️  [PYTHON] Package python3-pytest: NOT INSTALLED
+
+================================================
+Kernel Headers Check
+================================================
+Current kernel: 6.8.0-1031-azure
+✅ Kernel headers directory exists: /lib/modules/6.8.0-1031-azure/build
+✅ Kernel Makefile exists
+✅ Headers in /usr/src/linux-headers-6.8.0-1031-azure
+
+================================================
+Python Environment
+================================================
+Python3 version: Python 3.10.12
+Python3 path: /usr/bin/python3
+
+=== Installed Python Packages (relevant) ===
+No testing packages found
+
+================================================
+Environment Variables
+================================================
+PATH=/snap/bin:/home/runner/.local/bin:/opt/pipx_bin:/home/runner/.cargo/bin:/home/runner/.config/composer/vendor/bin:/usr/local/.ghcup/bin:/home/runner/.dotnet/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
+
+CC=not set
+CXX=not set
+CFLAGS=not set
+LDFLAGS=not set
+
+================================================
+Sudo Permissions Check
+================================================
+Checking sudo capabilities...
+✅ Sudo available without password
+✅ Can run apt-get update
+
+================================================
+Summary
+================================================
+
+Required tools found: 5
+Required tools missing: 0
+
+✅ All critical tools are available!
+The environment can run basic builds and tests.
+
+================================================
+Recommendations
+================================================
+For GitHub Actions Ubuntu runners:
+1. Use pre-installed tools when possible (gcc, g++, make, git, python3)
+2. Only install truly missing dependencies
+3. Skip kernel module tests (no kernel headers in containers)
+4. Use apt-get for additional packages only when needed
+5. Consider using setup-python action for Python packages
+
+================================================
+End of Environment Discovery
+================================================
