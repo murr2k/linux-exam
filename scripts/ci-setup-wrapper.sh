@@ -1,7 +1,9 @@
 #!/bin/bash
-# Robust CI Setup Wrapper - Always succeeds but reports issues
+# Robust CI Setup Wrapper - Handles missing dependencies gracefully
+# Returns failure only if critical dependencies are missing
 
 set +e  # Don't exit on error
+CRITICAL_FAILURE=0
 
 # Track what's available
 CAPABILITIES_FILE="ci-capabilities.json"
@@ -27,10 +29,13 @@ install_if_possible() {
 # Update package lists (best effort)
 sudo apt-get update 2>/dev/null || echo "\"apt_update\":\"failed\"," >> "$CAPABILITIES_FILE"
 
-# Essential packages (try to install but don't fail)
+# Essential packages (must have for build)
 ESSENTIAL_PKGS="build-essential gcc g++ make git"
 for pkg in $ESSENTIAL_PKGS; do
-    install_if_possible "$pkg"
+    if ! install_if_possible "$pkg"; then
+        echo "ERROR: Failed to install critical dependency: $pkg"
+        CRITICAL_FAILURE=1
+    fi
 done
 
 # Optional packages
@@ -59,5 +64,11 @@ fi
 # Close JSON
 echo "\"status\":\"complete\"}}' >> "$CAPABILITIES_FILE"
 
-# Always succeed
+# Exit with appropriate status
+if [ $CRITICAL_FAILURE -eq 1 ]; then
+    echo "ERROR: Critical dependencies missing - cannot continue"
+    exit 1
+fi
+
+echo "Setup completed successfully (some optional packages may be missing)"
 exit 0

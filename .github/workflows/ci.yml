@@ -85,7 +85,8 @@ jobs:
 
       - name: Run unit tests
         run: |
-          make test
+          chmod +x scripts/test-runner-strict.sh
+          ./scripts/test-runner-strict.sh unit
           
       - name: Generate coverage report
         run: |

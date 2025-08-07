@@ -304,10 +304,10 @@ jobs:
           
           # Use the test wrapper with specific category
           if [ -f scripts/test-wrapper.sh ]; then
-            timeout 1800 bash scripts/test-wrapper.sh --category ${{ matrix.test-category }} --verbose || {
-              echo "::warning::Test execution completed with issues for ${{ matrix.test-category }}"
-              exit 0  # Don't fail the pipeline
-            }
+            if ! timeout 1800 bash scripts/test-wrapper.sh --category ${{ matrix.test-category }} --verbose; then
+              echo "::error::Test execution FAILED for ${{ matrix.test-category }}"
+              exit 1  # Fail the pipeline on test failures
+            fi
           else
             echo "::warning::Test wrapper not found, running fallback tests"
             # Fallback test execution
