@@ -1,0 +1,59 @@
+{
+  "name": "e2e",
+  "description": "End-to-end test suite with browser automation",
+  "patterns": [
+    "**/e2e/**/*.test.js",
+    "**/e2e/**/*.spec.js",
+    "test/e2e/**/*.js"
+  ],
+  "excludePatterns": [
+    "**/unit/**",
+    "**/integration/**",
+    "**/node_modules/**"
+  ],
+  "timeout": 600000,
+  "parallel": false,
+  "coverage": false,
+  "maxWorkers": 1,
+  "tags": ["e2e", "browser", "ui", "slow"],
+  "environment": {
+    "NODE_ENV": "test",
+    "HEADLESS": "true",
+    "BROWSER": "chromium",
+    "BASE_URL": "http://localhost:3000",
+    "LOG_LEVEL": "info"
+  },
+  "setupFiles": [
+    "test/e2e-setup.js"
+  ],
+  "teardownFiles": [
+    "test/e2e-teardown.js"
+  ],
+  "browsers": [
+    "chromium",
+    "firefox",
+    "webkit"
+  ],
+  "retryAttempts": 2,
+  "fastFail": true,
+  "reportFormats": ["json", "html"],
+  "artifacts": {
+    "screenshots": true,
+    "videos": true,
+    "traces": false
+  },
+  "qualityGates": {
+    "successRate": 100
+  },
+  "dependencies": {
+    "waitFor": ["unit", "integration"],
+    "services": ["application", "database"]
+  },
+  "performance": {
+    "budgets": {
+      "loadTime": 3000,
+      "firstContentfulPaint": 1500,
+      "largestContentfulPaint": 2500
+    }
+  }
+}

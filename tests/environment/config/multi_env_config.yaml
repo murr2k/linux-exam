@@ -1,0 +1,441 @@
+# Multi-Environment Configuration
+# Defines environment-specific settings and requirements for test environments
+
+environments:
+  local:
+    name: "Local Development"
+    description: "Developer workstation environment"
+    platform: "any"
+    
+    dependencies:
+      python_packages:
+        - name: "pytest"
+          version: ">=7.0.0"
+          optional: false
+        - name: "coverage"
+          version: ">=6.0"
+          optional: false
+        - name: "numpy"
+          version: ">=1.20.0"
+          optional: false
+        - name: "psutil"
+          version: ">=5.8.0"
+          optional: false
+        - name: "pyyaml"
+          version: ">=6.0"
+          optional: false
+        - name: "black"
+          version: ">=22.0"
+          optional: true
+          description: "Code formatting"
+        - name: "flake8"
+          version: ">=4.0"
+          optional: true
+          description: "Linting"
+      
+      system_packages:
+        - name: "gcc"
+          optional: false
+          description: "C compiler for native extensions"
+        - name: "make"
+          optional: false
+          description: "Build automation"
+        - name: "cmake"
+          optional: true
+          description: "Advanced build system"
+        - name: "git"
+          optional: false
+          description: "Version control"
+      
+      binary_tools:
+        - name: "python3"
+          version: ">=3.8"
+          optional: false
+        - name: "pip"
+          optional: false
+        - name: "docker"
+          optional: true
+          description: "Containerization support"
+    
+    environment_variables:
+      PYTHONPATH: "."
+      PYTEST_CURRENT_TEST: ""
+      COVERAGE_PROCESS_START: ".coveragerc"
+    
+    resource_limits:
+      max_memory_mb: 2048
+      max_cpu_percent: 80.0
+      max_processes: 50
+      timeout_seconds: 300
+    
+    isolation:
+      filesystem_isolation: false
+      process_isolation: false
+      network_isolation: false
+      cleanup_on_exit: true
+      preserve_on_error: true
+    
+    monitoring:
+      enable_monitoring: true
+      monitoring_interval: 10.0
+      health_check_interval: 60.0
+      diagnostic_interval: 300.0
+      enable_alerts: false
+
+  ci:
+    name: "Continuous Integration"
+    description: "CI/CD pipeline environment"
+    platform: "linux"
+    
+    dependencies:
+      python_packages:
+        - name: "pytest"
+          version: ">=7.0.0"
+          optional: false
+        - name: "coverage"
+          version: ">=6.0"
+          optional: false
+        - name: "pytest-xvfb"
+          version: ">=2.0.0"
+          optional: false
+          description: "Virtual display for GUI tests"
+        - name: "pytest-timeout"
+          version: ">=2.0.0"
+          optional: false
+          description: "Test timeout handling"
+        - name: "numpy"
+          version: ">=1.20.0"
+          optional: false
+        - name: "psutil"
+          version: ">=5.8.0"
+          optional: false
+        - name: "pyyaml"
+          version: ">=6.0"
+          optional: false
+        - name: "junit-xml"
+          version: ">=1.9.0"
+          optional: false
+          description: "JUnit XML reports"
+      
+      system_packages:
+        - name: "gcc"
+          optional: false
+        - name: "make"
+          optional: false
+        - name: "cmake"
+          optional: false
+        - name: "git"
+          optional: false
+        - name: "xvfb"
+          optional: false
+          description: "Virtual display server"
+        - name: "curl"
+          optional: false
+          description: "HTTP client"
+        - name: "wget"
+          optional: false
+          description: "File downloader"
+      
+      binary_tools:
+        - name: "python3"
+          version: ">=3.8"
+          optional: false
+        - name: "pip"
+          optional: false
+        - name: "docker"
+          optional: false
+    
+    environment_variables:
+      CI: "true"
+      PYTHONPATH: "."
+      PYTEST_CURRENT_TEST: ""
+      COVERAGE_PROCESS_START: ".coveragerc"
+      DISPLAY: ":99"
+      DEBIAN_FRONTEND: "noninteractive"
+      PIP_CACHE_DIR: "/tmp/pip-cache"
+    
+    resource_limits:
+      max_memory_mb: 4096
+      max_cpu_percent: 90.0
+      max_processes: 100
+      timeout_seconds: 1800
+    
+    isolation:
+      filesystem_isolation: true
+      process_isolation: true
+      network_isolation: false
+      cleanup_on_exit: true
+      preserve_on_error: false
+    
+    monitoring:
+      enable_monitoring: true
+      monitoring_interval: 5.0
+      health_check_interval: 30.0
+      diagnostic_interval: 120.0
+      enable_alerts: true
+
+  production:
+    name: "Production Testing"
+    description: "Production-like environment for integration testing"
+    platform: "linux"
+    
+    dependencies:
+      python_packages:
+        - name: "pytest"
+          version: ">=7.0.0"
+          optional: false
+        - name: "coverage"
+          version: ">=6.0"
+          optional: false
+        - name: "pytest-benchmark"
+          version: ">=3.4.0"
+          optional: false
+          description: "Performance benchmarking"
+        - name: "pytest-mock"
+          version: ">=3.6.0"
+          optional: false
+          description: "Advanced mocking"
+        - name: "numpy"
+          version: ">=1.20.0"
+          optional: false
+        - name: "psutil"
+          version: ">=5.8.0"
+          optional: false
+        - name: "pyyaml"
+          version: ">=6.0"
+          optional: false
+        - name: "requests"
+          version: ">=2.25.0"
+          optional: false
+          description: "HTTP requests"
+      
+      system_packages:
+        - name: "gcc"
+          optional: false
+        - name: "make"
+          optional: false
+        - name: "cmake"
+          optional: false
+        - name: "git"
+          optional: false
+        - name: "curl"
+          optional: false
+        - name: "wget"
+          optional: false
+        - name: "htop"
+          optional: true
+          description: "System monitoring"
+      
+      binary_tools:
+        - name: "python3"
+          version: ">=3.8"
+          optional: false
+        - name: "pip"
+          optional: false
+        - name: "docker"
+          optional: false
+        - name: "docker-compose"
+          optional: false
+          description: "Container orchestration"
+    
+    environment_variables:
+      PYTHONPATH: "."
+      PYTEST_CURRENT_TEST: ""
+      COVERAGE_PROCESS_START: ".coveragerc"
+      PRODUCTION_MODE: "true"
+      LOG_LEVEL: "INFO"
+    
+    resource_limits:
+      max_memory_mb: 8192
+      max_cpu_percent: 95.0
+      max_processes: 200
+      timeout_seconds: 3600
+    
+    isolation:
+      filesystem_isolation: true
+      process_isolation: true
+      network_isolation: false
+      cleanup_on_exit: true
+      preserve_on_error: true
+    
+    monitoring:
+      enable_monitoring: true
+      monitoring_interval: 1.0
+      health_check_interval: 15.0
+      diagnostic_interval: 60.0
+      enable_alerts: true
+
+  docker:
+    name: "Docker Container"
+    description: "Containerized test environment"
+    platform: "linux"
+    
+    dependencies:
+      python_packages:
+        - name: "pytest"
+          version: ">=7.0.0"
+          optional: false
+        - name: "coverage"
+          version: ">=6.0"
+          optional: false
+        - name: "numpy"
+          version: ">=1.20.0"
+          optional: false
+        - name: "psutil"
+          version: ">=5.8.0"
+          optional: false
+        - name: "pyyaml"
+          version: ">=6.0"
+          optional: false
+      
+      system_packages:
+        - name: "gcc"
+          optional: false
+        - name: "make"
+          optional: false
+        - name: "git"
+          optional: false
+      
+      binary_tools:
+        - name: "python3"
+          version: ">=3.8"
+          optional: false
+        - name: "pip"
+          optional: false
+    
+    environment_variables:
+      PYTHONPATH: "."
+      PYTEST_CURRENT_TEST: ""
+      COVERAGE_PROCESS_START: ".coveragerc"
+      DOCKER_ENV: "true"
+      CONTAINER_NAME: "test-container"
+    
+    resource_limits:
+      max_memory_mb: 1024
+      max_cpu_percent: 75.0
+      max_processes: 25
+      timeout_seconds: 600
+    
+    isolation:
+      filesystem_isolation: true
+      process_isolation: true
+      network_isolation: true
+      cleanup_on_exit: true
+      preserve_on_error: false
+    
+    monitoring:
+      enable_monitoring: true
+      monitoring_interval: 5.0
+      health_check_interval: 30.0
+      diagnostic_interval: 180.0
+      enable_alerts: false
+
+# Default configurations that apply to all environments
+defaults:
+  validation:
+    pre_test_validation: true
+    post_test_validation: true
+    dependency_checking: true
+    configuration_validation: true
+    environment_setup_automation: true
+  
+  consistency:
+    track_env_vars: true
+    track_packages: true
+    track_files: 
+      - "requirements.txt"
+      - "setup.py"
+      - "pyproject.toml"
+      - "pytest.ini"
+      - ".coveragerc"
+    ignore_patterns:
+      - "*.pyc"
+      - "__pycache__"
+      - ".git"
+      - ".pytest_cache"
+      - "*.log"
+      - "*.tmp"
+    auto_fix: false
+    strict_mode: false
+  
+  sandbox:
+    create_temp_dirs: true
+    isolate_processes: true
+    cleanup_on_exit: true
+    preserve_on_error: true
+    resource_monitoring: true
+  
+  reporting:
+    generate_reports: true
+    include_metrics: true
+    include_diagnostics: true
+    export_format: "json"
+
+# Environment selection rules
+selection_rules:
+  - condition: "CI == 'true'"
+    environment: "ci"
+  - condition: "DOCKER_ENV == 'true'"
+    environment: "docker"
+  - condition: "PRODUCTION_MODE == 'true'"
+    environment: "production"
+  - condition: "default"
+    environment: "local"
+
+# Cross-environment compatibility matrix
+compatibility:
+  test_portability:
+    local_to_ci: true
+    local_to_production: true
+    local_to_docker: true
+    ci_to_production: true
+    ci_to_docker: true
+    production_to_docker: false
+  
+  feature_support:
+    gui_tests:
+      local: true
+      ci: false  # Requires xvfb
+      production: false
+      docker: false
+    
+    network_tests:
+      local: true
+      ci: true
+      production: true
+      docker: false  # Network isolation
+    
+    filesystem_tests:
+      local: true
+      ci: true
+      production: true
+      docker: true
+    
+    performance_tests:
+      local: true
+      ci: false  # Resource constraints
+      production: true
+      docker: false  # Container overhead
+
+# Environment-specific test configurations
+test_configurations:
+  unit_tests:
+    environments: ["local", "ci", "production", "docker"]
+    parallel_execution: true
+    timeout_multiplier: 1.0
+  
+  integration_tests:
+    environments: ["local", "ci", "production"]
+    parallel_execution: false
+    timeout_multiplier: 2.0
+  
+  e2e_tests:
+    environments: ["local", "production"]
+    parallel_execution: false
+    timeout_multiplier: 3.0
+  
+  performance_tests:
+    environments: ["local", "production"]
+    parallel_execution: false
+    timeout_multiplier: 5.0
+    resource_isolation: true

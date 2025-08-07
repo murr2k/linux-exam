@@ -1,0 +1,59 @@
+{
+  "name": "all",
+  "description": "Comprehensive test suite covering all test types",
+  "patterns": [
+    "**/*.test.js",
+    "**/*.spec.js"
+  ],
+  "excludePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**"
+  ],
+  "timeout": 1200000,
+  "parallel": true,
+  "coverage": true,
+  "maxWorkers": 6,
+  "tags": ["comprehensive", "full-suite"],
+  "environment": {
+    "NODE_ENV": "test",
+    "LOG_LEVEL": "warn"
+  },
+  "phases": [
+    {
+      "name": "unit",
+      "patterns": ["**/*.test.js", "**/*.spec.js"],
+      "excludePatterns": ["**/integration/**", "**/e2e/**"],
+      "parallel": true,
+      "coverage": true,
+      "timeout": 30000
+    },
+    {
+      "name": "integration", 
+      "patterns": ["**/integration/**/*.test.js"],
+      "parallel": true,
+      "coverage": false,
+      "timeout": 120000,
+      "dependsOn": ["unit"]
+    },
+    {
+      "name": "e2e",
+      "patterns": ["**/e2e/**/*.test.js"],
+      "parallel": false,
+      "coverage": false,
+      "timeout": 600000,
+      "dependsOn": ["unit", "integration"]
+    }
+  ],
+  "retryAttempts": 2,
+  "fastFail": false,
+  "reportFormats": ["json", "html", "junit"],
+  "qualityGates": {
+    "coverage": 85,
+    "successRate": 100
+  },
+  "performance": {
+    "maxDuration": 1200000,
+    "parallelEfficiency": 75
+  }
+}

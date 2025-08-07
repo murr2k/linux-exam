@@ -1,0 +1,45 @@
+{
+  "name": "integration",
+  "description": "Integration test suite with API and database testing",
+  "patterns": [
+    "**/integration/**/*.test.js",
+    "**/integration/**/*.spec.js",
+    "test/integration/**/*.js"
+  ],
+  "excludePatterns": [
+    "**/unit/**",
+    "**/e2e/**",
+    "**/node_modules/**"
+  ],
+  "timeout": 120000,
+  "parallel": true,
+  "coverage": false,
+  "maxWorkers": 2,
+  "tags": ["integration", "api", "database"],
+  "environment": {
+    "NODE_ENV": "test",
+    "DATABASE_URL": "postgresql://test:test@localhost:5432/test_db",
+    "REDIS_URL": "redis://localhost:6379",
+    "LOG_LEVEL": "warn"
+  },
+  "setupFiles": [
+    "test/integration-setup.js"
+  ],
+  "teardownFiles": [
+    "test/integration-teardown.js"
+  ],
+  "services": [
+    "postgres",
+    "redis"
+  ],
+  "retryAttempts": 3,
+  "fastFail": false,
+  "reportFormats": ["json", "junit"],
+  "qualityGates": {
+    "successRate": 95
+  },
+  "dependencies": {
+    "waitFor": ["unit"],
+    "services": ["database", "cache"]
+  }
+}

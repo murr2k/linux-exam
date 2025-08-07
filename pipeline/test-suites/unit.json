@@ -1,0 +1,34 @@
+{
+  "name": "unit",
+  "description": "Unit test suite with fast execution and high coverage",
+  "patterns": [
+    "**/*.test.js",
+    "**/*.spec.js",
+    "src/**/__tests__/**/*.js"
+  ],
+  "excludePatterns": [
+    "**/integration/**",
+    "**/e2e/**",
+    "**/performance/**",
+    "**/node_modules/**"
+  ],
+  "timeout": 30000,
+  "parallel": true,
+  "coverage": true,
+  "maxWorkers": 4,
+  "tags": ["unit", "fast", "coverage"],
+  "environment": {
+    "NODE_ENV": "test",
+    "LOG_LEVEL": "error"
+  },
+  "setupFiles": [
+    "test/setup.js"
+  ],
+  "retryAttempts": 2,
+  "fastFail": true,
+  "reportFormats": ["json", "html", "junit"],
+  "qualityGates": {
+    "coverage": 90,
+    "successRate": 100
+  }
+}

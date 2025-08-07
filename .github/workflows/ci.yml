@@ -255,33 +255,72 @@ jobs:
           reporter: java-junit
           fail-on-error: false
 
-  # Security scanning
+  # Enhanced Security scanning with comprehensive testing
   security:
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    strategy:
+      matrix:
+        scan-type: [sast, sca, dast, fuzzing]
+        include:
+          - scan-type: sast
+            timeout: 20
+          - scan-type: sca  
+            timeout: 15
+          - scan-type: dast
+            timeout: 25
+          - scan-type: fuzzing
+            timeout: 30
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run security scan
-        uses: securecodewarrior/github-action-add-sarif@v1
-        with:
-          sarif-file: 'security-scan.sarif'
-        continue-on-error: true
+      - name: Setup security scanning environment
+        run: |
+          sudo apt-get update
+          sudo ./scripts/ci-setup.sh
 
-      - name: Run Trivy vulnerability scanner
+      - name: Run comprehensive security scan - ${{ matrix.scan-type }}
+        timeout-minutes: ${{ matrix.timeout }}
+        run: |
+          chmod +x scripts/security_scan.sh
+          ./scripts/security_scan.sh --${{ matrix.scan-type }} \
+            --report-format sarif \
+            --output-dir security-results \
+            --severity-filter medium || true
+
+      - name: Run dependency vulnerability scan
+        if: matrix.scan-type == 'sca'
+        timeout-minutes: 10
+        run: |
+          chmod +x scripts/dependency_scan.py
+          python3 scripts/dependency_scan.py \
+            --output-format json \
+            --output-dir security-results || true
+
+      - name: Run Trivy filesystem scan
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'fs'
           scan-ref: '.'
           format: 'sarif'
-          output: 'trivy-results.sarif'
+          output: 'security-results/trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
 
-      - name: Upload Trivy scan results
+      - name: Upload security scan results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          sarif_file: 'trivy-results.sarif'
+          sarif_file: security-results/trivy-results.sarif
+          category: trivy-${{ matrix.scan-type }}
+
+      - name: Upload security artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-results-${{ matrix.scan-type }}
+          path: security-results/
+          retention-days: 30
 
   # Build and publish Docker image
   docker-build:

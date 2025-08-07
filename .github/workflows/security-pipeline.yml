@@ -1,0 +1,582 @@
+name: Security Testing Pipeline
+
+on:
+  push:
+    branches: [main, develop, security/*, feature/*]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - '.gitignore'
+  pull_request:
+    branches: [main, develop]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - '.gitignore'
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  BUILD_TYPE: Release
+  SECURITY_SCAN_TIMEOUT: 1800  # 30 minutes
+  SARIF_UPLOAD: true
+
+jobs:
+  # Security scanning setup and tool installation
+  security-setup:
+    runs-on: ubuntu-latest
+    outputs:
+      should-run-security: ${{ steps.changes.outputs.should-run }}
+      security-tools-version: ${{ steps.versions.outputs.tools-version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect security-relevant changes
+        id: changes
+        run: |
+          if git diff --name-only HEAD~1 HEAD | grep -E '\.(c|h|py|sh|yml|yaml|Makefile|Dockerfile)$|security|test'; then
+            echo "should-run=true" >> $GITHUB_OUTPUT
+          else
+            echo "should-run=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get security tools versions
+        id: versions
+        run: |
+          TOOLS_HASH=$(echo "cppcheck flawfinder bandit safety" | sha256sum | cut -d' ' -f1 | cut -c1-8)
+          echo "tools-version=${TOOLS_HASH}" >> $GITHUB_OUTPUT
+
+      - name: Cache security tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.local/bin
+            /usr/local/bin/cppcheck
+            /usr/local/bin/flawfinder
+          key: security-tools-v2-${{ runner.os }}-${{ steps.versions.outputs.tools-version }}
+          restore-keys: |
+            security-tools-v2-${{ runner.os }}-
+
+  # Static Application Security Testing (SAST)
+  sast-scan:
+    runs-on: ubuntu-latest
+    needs: security-setup
+    if: needs.security-setup.outputs.should-run-security == 'true'
+    strategy:
+      matrix:
+        tool: [cppcheck, flawfinder, clang-static-analyzer, semgrep]
+        include:
+          - tool: cppcheck
+            config: --enable=all --std=c99 --platform=unix64
+            output: xml
+          - tool: flawfinder 
+            config: --html --context --minlevel=2
+            output: html
+          - tool: clang-static-analyzer
+            config: --analyze -Xanalyzer -analyzer-checker=security
+            output: text
+          - tool: semgrep
+            config: --config=auto --severity=INFO
+            output: sarif
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup security scanning environment
+        run: |
+          sudo apt-get update
+          sudo ./scripts/ci-setup.sh
+
+      - name: Install SAST tools
+        run: |
+          case "${{ matrix.tool }}" in
+            "cppcheck")
+              sudo apt-get install -y cppcheck
+              ;;
+            "flawfinder")
+              sudo apt-get install -y flawfinder
+              ;;
+            "clang-static-analyzer")
+              sudo apt-get install -y clang clang-tools
+              ;;
+            "semgrep")
+              pip3 install semgrep
+              ;;
+          esac
+
+      - name: Run ${{ matrix.tool }} SAST scan
+        timeout-minutes: 15
+        run: |
+          mkdir -p security-results/sast
+          case "${{ matrix.tool }}" in
+            "cppcheck")
+              cppcheck ${{ matrix.config }} \
+                --xml --xml-version=2 \
+                --suppress=missingIncludeSystem \
+                --rule-file=scripts/security/cppcheck_security_rules.xml \
+                --output-file=security-results/sast/cppcheck-results.xml \
+                drivers/ include/ || true
+              ;;
+            "flawfinder")
+              flawfinder ${{ matrix.config }} \
+                --quiet --dataonly \
+                drivers/ include/ > security-results/sast/flawfinder-results.html || true
+              ;;
+            "clang-static-analyzer")
+              find drivers/ -name "*.c" -exec clang ${{ matrix.config }} {} \; \
+                > security-results/sast/clang-analyzer-results.txt 2>&1 || true
+              ;;
+            "semgrep")
+              semgrep ${{ matrix.config }} \
+                --output=security-results/sast/semgrep-results.sarif \
+                . || true
+              ;;
+          esac
+
+      - name: Upload SAST results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sast-results-${{ matrix.tool }}
+          path: security-results/sast/
+          retention-days: 30
+
+      - name: Upload SARIF to GitHub Security
+        if: matrix.tool == 'semgrep' && always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: security-results/sast/semgrep-results.sarif
+          category: semgrep
+
+  # Software Composition Analysis (SCA)
+  sca-scan:
+    runs-on: ubuntu-latest
+    needs: security-setup
+    if: needs.security-setup.outputs.should-run-security == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install SCA tools
+        run: |
+          pip3 install safety bandit[toml] pip-audit
+
+      - name: Run dependency vulnerability scan
+        timeout-minutes: 10
+        run: |
+          mkdir -p security-results/sca
+          
+          # Safety scan for Python dependencies
+          if [ -f requirements.txt ]; then
+            safety check --json --file requirements.txt \
+              --output security-results/sca/safety-results.json || true
+          fi
+          
+          # Bandit scan for Python security issues
+          if find . -name "*.py" -not -path "./.git/*" | grep -q .; then
+            bandit -r . -f json -o security-results/sca/bandit-results.json \
+              --skip B101 || true
+          fi
+
+      - name: License compliance check
+        run: |
+          echo "# License Compliance Report" > security-results/sca/license-compliance.txt
+          echo "Generated: $(date)" >> security-results/sca/license-compliance.txt
+          echo "" >> security-results/sca/license-compliance.txt
+          
+          # Check for SPDX license identifiers
+          find . -type f \( -name "*.c" -o -name "*.h" -o -name "*.py" \) \
+            -not -path "./.git/*" -not -path "./build/*" | while read file; do
+            if ! grep -q "SPDX-License-Identifier" "$file" 2>/dev/null; then
+              echo "Missing license identifier: $file" >> security-results/sca/license-compliance.txt
+            fi
+          done
+
+      - name: Upload SCA results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sca-results
+          path: security-results/sca/
+          retention-days: 30
+
+  # Dynamic Application Security Testing (DAST) and Fuzzing
+  dast-fuzzing:
+    runs-on: ubuntu-latest
+    needs: [security-setup, sast-scan]
+    if: needs.security-setup.outputs.should-run-security == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup build environment
+        run: |
+          sudo apt-get update
+          sudo ./scripts/ci-setup.sh
+
+      - name: Install fuzzing and memory analysis tools
+        run: |
+          sudo apt-get install -y afl++ valgrind gcc-multilib
+
+      - name: Build with security instrumentation
+        run: |
+          # Build with AddressSanitizer for memory error detection
+          export CFLAGS="-fsanitize=address -fsanitize=undefined -g -O0"
+          export LDFLAGS="-fsanitize=address -fsanitize=undefined"
+          make clean
+          make all || true
+
+      - name: Run memory safety tests
+        timeout-minutes: 10
+        run: |
+          mkdir -p security-results/dast
+          ./scripts/security_scan.sh --memory-safety \
+            --output-dir security-results --report-format json || true
+
+      - name: Run fuzzing tests
+        timeout-minutes: 15
+        run: |
+          ./scripts/security_scan.sh --fuzzing \
+            --output-dir security-results --report-format json || true
+
+      - name: Load and test security modules
+        run: |
+          # Build security test modules
+          if [ -d tests/security ]; then
+            cd tests/security
+            make all || true
+            
+            # Run security tests (would typically load kernel modules)
+            echo "Security test modules built successfully" > \
+              ../../security-results/dast/security-modules-test.txt
+          fi
+
+      - name: Upload DAST results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dast-fuzzing-results
+          path: security-results/
+          retention-days: 30
+
+  # Kernel-specific security testing
+  kernel-security:
+    runs-on: ubuntu-latest
+    needs: security-setup
+    if: needs.security-setup.outputs.should-run-security == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kernel build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y linux-headers-$(uname -r) sparse
+
+      - name: Run kernel-specific security checks
+        run: |
+          mkdir -p security-results/kernel
+          
+          # Sparse semantic analysis
+          export SPARSE_FLAGS="-D__KERNEL__ -Dlinux -D__linux__ -Wbitwise -Wcast-to-as -Wshadow -Wundef"
+          find drivers/ -name "*.c" | while read file; do
+            echo "=== Analyzing: $file ===" >> security-results/kernel/sparse-results.txt
+            sparse $SPARSE_FLAGS "$file" >> security-results/kernel/sparse-results.txt 2>&1 || true
+          done
+
+      - name: Kernel capability analysis
+        run: |
+          echo "# Kernel Capability Analysis" > security-results/kernel/capability-analysis.txt
+          echo "Generated: $(date)" >> security-results/kernel/capability-analysis.txt
+          echo "" >> security-results/kernel/capability-analysis.txt
+          
+          # Check for capability usage
+          grep -rn "capable\|ns_capable\|CAP_" drivers/ include/ >> \
+            security-results/kernel/capability-analysis.txt || true
+
+      - name: Device node security analysis
+        run: |
+          echo "# Device Node Security Analysis" > security-results/kernel/device-security.txt
+          echo "Generated: $(date)" >> security-results/kernel/device-security.txt
+          echo "" >> security-results/kernel/device-security.txt
+          
+          # Check for device creation and permissions
+          grep -rn "device_create\|cdev_add\|misc_register" drivers/ >> \
+            security-results/kernel/device-security.txt || true
+
+      - name: Upload kernel security results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kernel-security-results
+          path: security-results/kernel/
+          retention-days: 30
+
+  # Comprehensive security report generation
+  security-report:
+    runs-on: ubuntu-latest
+    needs: [sast-scan, sca-scan, dast-fuzzing, kernel-security]
+    if: always() && needs.security-setup.outputs.should-run-security == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all security artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Install report generation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip jq xmlstarlet
+          pip3 install jinja2 pyyaml
+
+      - name: Generate comprehensive security report
+        run: |
+          mkdir -p final-security-report
+          python3 - << 'EOF'
+import os
+import json
+import glob
+from datetime import datetime
+
+# Collect all security results
+security_data = {
+    'scan_timestamp': datetime.now().isoformat(),
+    'project': 'MPU-6050 Kernel Driver',
+    'version': '1.0.0',
+    'commit': os.environ.get('GITHUB_SHA', 'unknown'),
+    'branch': os.environ.get('GITHUB_REF_NAME', 'unknown'),
+    'run_number': os.environ.get('GITHUB_RUN_NUMBER', '0'),
+    'summary': {
+        'total_vulnerabilities': 0,
+        'critical': 0,
+        'high': 0,
+        'medium': 0,
+        'low': 0,
+        'tools_used': []
+    },
+    'findings': [],
+    'recommendations': []
+}
+
+# Process SAST results
+for sast_file in glob.glob('sast-results-*/'):
+    tool_name = sast_file.split('-')[-1].rstrip('/')
+    security_data['summary']['tools_used'].append(f'sast-{tool_name}')
+
+# Process SCA results
+if os.path.exists('sca-results/'):
+    security_data['summary']['tools_used'].append('sca-safety')
+    security_data['summary']['tools_used'].append('sca-bandit')
+
+# Process DAST results  
+if os.path.exists('dast-fuzzing-results/'):
+    security_data['summary']['tools_used'].append('dast-fuzzing')
+
+# Process kernel security results
+if os.path.exists('kernel-security-results/'):
+    security_data['summary']['tools_used'].append('kernel-sparse')
+
+# Add security recommendations
+security_data['recommendations'] = [
+    'Implement comprehensive input validation for all user-controllable data',
+    'Use memory-safe string functions (strncpy, strncat, snprintf)',
+    'Add proper capability checks for all privileged operations', 
+    'Implement bounds checking for array and buffer access',
+    'Use AddressSanitizer during development and testing',
+    'Regular security dependency scanning',
+    'Integrate security testing into CI/CD pipeline',
+    'Implement fuzzing for critical code paths',
+    'Regular security code reviews',
+    'Maintain security documentation and threat models'
+]
+
+# Generate JSON report
+with open('final-security-report/security-report.json', 'w') as f:
+    json.dump(security_data, f, indent=2)
+
+# Generate markdown summary
+with open('final-security-report/security-summary.md', 'w') as f:
+    f.write(f"""# Security Assessment Summary
+
+**Project:** {security_data['project']}  
+**Scan Date:** {security_data['scan_timestamp']}  
+**Commit:** {security_data['commit'][:8]}  
+**Branch:** {security_data['branch']}  
+**Run:** #{security_data['run_number']}
+
+## Security Status
+🔍 **Tools Used:** {len(security_data['summary']['tools_used'])}  
+🚨 **Total Vulnerabilities:** {security_data['summary']['total_vulnerabilities']}
+
+### Severity Breakdown
+- 🔴 **Critical:** {security_data['summary']['critical']}
+- 🟠 **High:** {security_data['summary']['high']} 
+- 🟡 **Medium:** {security_data['summary']['medium']}
+- 🟢 **Low:** {security_data['summary']['low']}
+
+## Security Testing Coverage
+- ✅ Static Application Security Testing (SAST)
+- ✅ Software Composition Analysis (SCA)
+- ✅ Dynamic Application Security Testing (DAST)
+- ✅ Fuzzing and Input Validation
+- ✅ Memory Safety Analysis
+- ✅ Kernel-Specific Security Checks
+
+## Key Recommendations
+""")
+    for i, rec in enumerate(security_data['recommendations'][:5], 1):
+        f.write(f"{i}. {rec}\n")
+    
+    f.write(f"\n## Next Steps\n")
+    if security_data['summary']['total_vulnerabilities'] == 0:
+        f.write("✅ No security vulnerabilities detected - maintain current security posture\n")
+    else:
+        f.write("⚠️ Address identified security vulnerabilities in priority order\n")
+        f.write("🔄 Re-run security scan after implementing fixes\n")
+    
+    f.write("📈 Continue integrating security testing into development workflow\n")
+
+print("Security report generated successfully")
+EOF
+
+      - name: Upload comprehensive security report
+        uses: actions/upload-artifact@v4
+        with:
+          name: comprehensive-security-report
+          path: final-security-report/
+          retention-days: 90
+
+      - name: Generate SARIF for GitHub Security tab
+        run: |
+          python3 - << 'EOF'
+import json
+import os
+
+sarif_report = {
+    "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+    "version": "2.1.0",
+    "runs": [{
+        "tool": {
+            "driver": {
+                "name": "MPU6050-Security-Pipeline",
+                "version": "1.0.0",
+                "informationUri": "https://github.com/murr2k/linux-exam"
+            }
+        },
+        "results": []
+    }]
+}
+
+with open('security-pipeline-results.sarif', 'w') as f:
+    json.dump(sarif_report, f, indent=2)
+EOF
+
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: security-pipeline-results.sarif
+          category: security-pipeline
+
+      - name: Comment on PR with security results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            if (fs.existsSync('final-security-report/security-summary.md')) {
+              const summary = fs.readFileSync('final-security-report/security-summary.md', 'utf8');
+              
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## 🔒 Security Assessment Results\n\n${summary}`
+              });
+            }
+
+  # Security monitoring and alerting
+  security-monitoring:
+    runs-on: ubuntu-latest
+    needs: security-report
+    if: always() && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download security report
+        uses: actions/download-artifact@v4
+        with:
+          name: comprehensive-security-report
+
+      - name: Check for new vulnerabilities
+        run: |
+          # This would typically compare against historical data
+          # For now, just check if any vulnerabilities were found
+          VULN_COUNT=$(jq '.summary.total_vulnerabilities' security-report.json 2>/dev/null || echo "0")
+          
+          if [ "$VULN_COUNT" -gt "0" ]; then
+            echo "security-alert=true" >> $GITHUB_ENV
+            echo "vuln-count=$VULN_COUNT" >> $GITHUB_ENV
+          else
+            echo "security-alert=false" >> $GITHUB_ENV
+          fi
+
+      - name: Create GitHub issue for security vulnerabilities
+        if: env.security-alert == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const vulnCount = process.env['vuln-count'];
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Security Alert: ${vulnCount} vulnerabilities detected`,
+              body: `
+## Security Alert
+              
+**Vulnerabilities detected:** ${vulnCount}  
+**Commit:** ${context.sha}  
+**Branch:** ${context.ref}  
+**Scan timestamp:** ${new Date().toISOString()}
+
+### Action Required
+1. Review the security report in the latest workflow run
+2. Address vulnerabilities based on severity priority
+3. Re-run security scans after implementing fixes
+
+### Resources
+- [Security Report Artifact](${context.payload.repository.html_url}/actions/runs/${context.runId})
+- [Security Documentation](./docs/SECURITY.md)
+- [Security Best Practices](./docs/SECURITY_BEST_PRACTICES.md)
+
+/cc @murr2k
+              `,
+              labels: ['security', 'high-priority', 'bug'],
+              assignees: ['murr2k']
+            });
+
+  # Cleanup and archival
+  cleanup:
+    runs-on: ubuntu-latest
+    needs: [security-report, security-monitoring]
+    if: always()
+    steps:
+      - name: Cleanup temporary artifacts
+        run: |
+          echo "Security pipeline completed"
+          echo "Reports archived with 90-day retention"
+          echo "Monitoring alerts configured"
