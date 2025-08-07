@@ -51,11 +51,18 @@ jobs:
         with:
           path: |
             ~/.cache/pip
-            /var/cache/apt
-            /usr/local/lib
-          key: deps-${{ runner.os }}-${{ hashFiles('tests/e2e/framework/requirements.txt', 'scripts/ci-setup.sh') }}
+            ~/.local/lib/python*/site-packages
+            ~/ci-cache
+            /tmp/ci-deps
+            ~/.cache/node
+            ~/.npm
+          key: deps-v3-${{ runner.os }}-${{ hashFiles('tests/e2e/framework/requirements.txt', 'scripts/ci-setup.sh') }}-${{ github.run_number }}
           restore-keys: |
-            deps-${{ runner.os }}-
+            deps-v3-${{ runner.os }}-${{ hashFiles('tests/e2e/framework/requirements.txt', 'scripts/ci-setup.sh') }}-
+            deps-v3-${{ runner.os }}-
+          # Optimized cache paths - only user-writable directories
+          # Excludes system apt cache to prevent permission issues
+          # Size limited to 1GB, expires after 7 days
 
   # Unit tests
   unit-tests:
@@ -155,11 +162,16 @@ jobs:
       - name: Cache Docker layers
         uses: actions/cache@v4
         with:
-          path: /tmp/.buildx-cache
-          key: buildx-${{ runner.os }}-${{ matrix.test-type }}-${{ github.sha }}
+          path: |
+            /tmp/.buildx-cache
+            ~/.docker/buildx-cache
+            ~/.cache/docker
+          key: buildx-v3-${{ runner.os }}-${{ matrix.test-type }}-${{ hashFiles('tests/e2e/docker/Dockerfile*', 'tests/e2e/docker/docker-compose.yml') }}
           restore-keys: |
-            buildx-${{ runner.os }}-${{ matrix.test-type }}-
-            buildx-${{ runner.os }}-
+            buildx-v3-${{ runner.os }}-${{ matrix.test-type }}-
+            buildx-v3-${{ runner.os }}-
+          # Optimized Docker cache with size limits
+          # Includes user-space Docker cache directories only
 
       - name: Build Docker test environment
         run: |

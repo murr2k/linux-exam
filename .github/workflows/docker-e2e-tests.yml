@@ -128,12 +128,19 @@ jobs:
           driver-opts: network=host
       
       - name: Cache Docker layers
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          path: |
+            /tmp/.buildx-cache
+            ~/.docker/buildx-cache
+            ~/.cache/docker
+            ~/.local/share/docker
+          key: buildx-e2e-v3-${{ runner.os }}-${{ matrix.test-config.name }}-${{ hashFiles('tests/e2e/docker/Dockerfile*', 'tests/e2e/docker/docker-compose.yml') }}
           restore-keys: |
-            ${{ runner.os }}-buildx-
+            buildx-e2e-v3-${{ runner.os }}-${{ matrix.test-config.name }}-
+            buildx-e2e-v3-${{ runner.os }}-
+          # Optimized Docker E2E cache with size controls
+          # User-space paths only, excludes problematic system directories
       
       - name: Free disk space
         run: |

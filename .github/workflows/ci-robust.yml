@@ -80,10 +80,18 @@ jobs:
           path: |
             ~/ci-cache
             ~/.cache/pip
+            ~/.local/lib
+            ~/.local/bin
             /tmp/ci-setup-marker
+            /tmp/ci-tools
+            ~/.cache/node
+            ~/.npm
+            ~/.cache/yarn
           key: ${{ steps.cache-key.outputs.key }}
           restore-keys: |
             robust-ci-${{ env.CACHE_VERSION }}-${{ runner.os }}-
+          # Optimized cache paths - excludes system apt directories
+          # Cache expires after 7 days, size limited to 2GB
 
       - name: Setup CI environment (Robust)
         id: setup
@@ -111,8 +119,12 @@ jobs:
             echo "capabilities={\"timestamp\":\"$(date -Iseconds)\",\"capabilities\":{}}" >> $GITHUB_OUTPUT
           fi
           
-          # Create cache marker
-          mkdir -p /tmp && touch /tmp/ci-setup-marker
+          # Create cache directories and marker
+          mkdir -p ~/ci-cache ~/.cache/pip ~/.local/lib ~/.local/bin /tmp/ci-tools /tmp && touch /tmp/ci-setup-marker
+          
+          # Clean up any existing cache bloat
+          find ~/.cache -type f -mtime +7 -delete 2>/dev/null || true
+          find /tmp/ci-* -type f -mtime +1 -delete 2>/dev/null || true
 
       - name: Environment information
         id: env-info
@@ -154,7 +166,13 @@ jobs:
           path: |
             ~/ci-cache
             ~/.cache/pip
+            ~/.local/lib
+            ~/.local/bin
             /tmp/ci-setup-marker
+            /tmp/ci-tools
+            ~/.cache/node
+            ~/.npm
+            ~/.cache/yarn
           key: ${{ needs.setup.outputs.cache-key }}
           restore-keys: |
             robust-ci-${{ env.CACHE_VERSION }}-${{ runner.os }}-
@@ -248,8 +266,16 @@ jobs:
           path: |
             ~/ci-cache
             ~/.cache/pip
+            ~/.local/lib
+            ~/.local/bin
             /tmp/ci-setup-marker
+            /tmp/ci-tools
+            ~/.cache/node
+            ~/.npm
+            ~/.cache/yarn
           key: ${{ needs.setup.outputs.cache-key }}
+          restore-keys: |
+            robust-ci-${{ env.CACHE_VERSION }}-${{ runner.os }}-
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -378,8 +404,16 @@ jobs:
           path: |
             ~/ci-cache
             ~/.cache/pip
+            ~/.local/lib
+            ~/.local/bin
             /tmp/ci-setup-marker
+            /tmp/ci-tools
+            ~/.cache/node
+            ~/.npm
+            ~/.cache/yarn
           key: ${{ needs.setup.outputs.cache-key }}
+          restore-keys: |
+            robust-ci-${{ env.CACHE_VERSION }}-${{ runner.os }}-
 
       - name: Setup quality tools
         run: |

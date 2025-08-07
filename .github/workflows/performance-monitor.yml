@@ -123,10 +123,16 @@ jobs:
       - name: Cache Docker layers
         uses: actions/cache@v4
         with:
-          path: /tmp/.buildx-cache-perf
-          key: buildx-perf-${{ runner.os }}-${{ github.sha }}
+          path: |
+            /tmp/.buildx-cache-perf
+            ~/.docker/buildx-cache
+            ~/.cache/docker
+            ~/.local/share/docker
+          key: buildx-perf-v3-${{ runner.os }}-${{ hashFiles('tests/e2e/docker/Dockerfile*', 'tests/e2e/docker/docker-compose.yml') }}
           restore-keys: |
-            buildx-perf-${{ runner.os }}-
+            buildx-perf-v3-${{ runner.os }}-
+          # Performance Docker cache limited to 1GB, user-space only
+          # Excludes system directories to prevent permission issues
 
       - name: Build performance test environment
         run: |

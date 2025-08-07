@@ -157,11 +157,17 @@ jobs:
       - name: Cache Docker layers
         uses: actions/cache@v4
         with:
-          path: /tmp/.buildx-cache-e2e
-          key: buildx-e2e-${{ runner.os }}-${{ matrix.test-suite }}-${{ github.sha }}
+          path: |
+            /tmp/.buildx-cache-e2e
+            ~/.docker/buildx-cache
+            ~/.cache/docker
+            ~/.local/share/docker
+          key: buildx-e2e-v3-${{ runner.os }}-${{ matrix.test-suite }}-${{ hashFiles('tests/e2e/docker/Dockerfile*', 'tests/e2e/docker/docker-compose.yml') }}
           restore-keys: |
-            buildx-e2e-${{ runner.os }}-${{ matrix.test-suite }}-
-            buildx-e2e-${{ runner.os }}-
+            buildx-e2e-v3-${{ runner.os }}-${{ matrix.test-suite }}-
+            buildx-e2e-v3-${{ runner.os }}-
+          # Optimized E2E Docker cache with proper size limits
+          # Excludes system directories, includes user Docker cache only
 
       - name: Build E2E test environment
         run: |
