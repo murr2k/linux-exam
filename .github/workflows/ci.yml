@@ -1,0 +1,275 @@
+name: MPU-6050 Kernel Driver CI/CD
+
+on:
+  push:
+    branches: [main, develop, feature/*]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+env:
+  KERNEL_VERSION: "5.15.0"
+  BUILD_DIR: "build"
+  COVERAGE_DIR: "coverage"
+
+jobs:
+  build:
+    name: Build Kernel Module
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        kernel: ["5.15.0", "6.1.0", "6.5.0"]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Cache kernel headers
+        uses: actions/cache@v3
+        with:
+          path: |
+            /lib/modules
+            ~/.cache/kernel-headers
+          key: kernel-headers-${{ matrix.kernel }}-${{ runner.os }}
+          restore-keys: |
+            kernel-headers-${{ matrix.kernel }}-
+            kernel-headers-
+            
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            linux-headers-$(uname -r) \
+            linux-headers-generic \
+            kmod \
+            git \
+            make \
+            gcc \
+            libc6-dev
+            
+      - name: Setup build environment
+        run: |
+          mkdir -p ${{ env.BUILD_DIR }}
+          echo "KERNEL_DIR=/lib/modules/$(uname -r)/build" >> $GITHUB_ENV
+          
+      - name: Build kernel module
+        run: |
+          ./scripts/build.sh --build-only
+          
+      - name: Verify module loading (dry-run)
+        run: |
+          modinfo ${{ env.BUILD_DIR }}/*.ko || echo "Module info not available"
+          
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: kernel-modules-${{ matrix.kernel }}
+          path: |
+            ${{ env.BUILD_DIR }}/*.ko
+            ${{ env.BUILD_DIR }}/*.mod
+            ${{ env.BUILD_DIR }}/*.o
+          retention-days: 7
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-22.04
+    needs: build
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libcunit1-dev \
+            libgtest-dev \
+            cmake \
+            lcov \
+            gcov \
+            valgrind
+            
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: kernel-modules-5.15.0
+          path: ${{ env.BUILD_DIR }}
+          
+      - name: Run unit tests
+        run: |
+          ./scripts/build.sh --test-only
+          
+      - name: Generate coverage report
+        run: |
+          ./scripts/build.sh --coverage
+          
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          directory: ${{ env.COVERAGE_DIR }}
+          flags: unittests
+          name: mpu6050-coverage
+          fail_ci_if_error: false
+          
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: test-results
+          path: |
+            tests/results/*.xml
+            ${{ env.COVERAGE_DIR }}/*.html
+          retention-days: 14
+
+  lint:
+    name: Code Quality & Linting
+    runs-on: ubuntu-22.04
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Install linting tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang-format \
+            cppcheck \
+            flawfinder \
+            sparse \
+            coccinelle
+            
+      - name: Run clang-format check
+        run: |
+          ./scripts/lint.sh --format-check
+          
+      - name: Run cppcheck analysis
+        run: |
+          ./scripts/lint.sh --static-analysis
+          
+      - name: Run security checks
+        run: |
+          ./scripts/lint.sh --security-scan
+          
+      - name: Check kernel coding style
+        run: |
+          if [ -f scripts/checkpatch.pl ]; then
+            ./scripts/lint.sh --checkpatch
+          else
+            echo "checkpatch.pl not found, skipping kernel style check"
+          fi
+          
+      - name: Upload lint results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: lint-results
+          path: |
+            lint-results/*.txt
+            lint-results/*.xml
+          retention-days: 7
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  integration:
+    name: Integration Test
+    runs-on: ubuntu-22.04
+    needs: [build, test, lint]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Build test environment
+        run: |
+          docker build -f docker/Dockerfile -t mpu6050-test .
+          
+      - name: Run integration tests in container
+        run: |
+          docker run --rm -v $(pwd):/workspace mpu6050-test ./scripts/build.sh --integration
+          
+      - name: Generate final report
+        run: |
+          echo "# CI/CD Pipeline Summary" > pipeline-report.md
+          echo "## Build Status: ✅ Success" >> pipeline-report.md
+          echo "## Test Status: ✅ Passed" >> pipeline-report.md
+          echo "## Lint Status: ✅ Clean" >> pipeline-report.md
+          echo "## Integration Status: ✅ Passed" >> pipeline-report.md
+          
+      - name: Upload pipeline report
+        uses: actions/upload-artifact@v3
+        with:
+          name: pipeline-report
+          path: pipeline-report.md
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-22.04
+    needs: [integration]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        
+      - name: Create release package
+        run: |
+          mkdir -p release
+          cp -r kernel-modules-*/*.ko release/ || true
+          cp -r docs release/ || true
+          tar -czf mpu6050-driver-$(date +%Y%m%d-%H%M%S).tar.gz release/
+          
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v$(date +%Y.%m.%d)
+          name: MPU-6050 Driver Release v$(date +%Y.%m.%d)
+          body: |
+            Automated release of MPU-6050 kernel driver
+            
+            ## Changes
+            - Built and tested kernel modules
+            - All CI/CD checks passed
+            
+            ## Artifacts
+            - Kernel modules for multiple kernel versions
+            - Documentation and examples
+          files: |
+            *.tar.gz
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

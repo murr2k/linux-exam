@@ -1,0 +1,65 @@
+# Docker ignore file for MPU-6050 kernel driver project
+
+# Build artifacts
+build/
+*.ko
+*.mod
+*.o
+*.cmd
+*.symvers
+*.order
+*.markers
+
+# Test results
+test-results/
+coverage/
+lint-results/
+
+# Git
+.git/
+.gitignore
+.github/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation build
+docs/_build/
+docs/html/
+*.pdf
+
+# Backup files
+*.bak
+*.backup
+*.tmp
+
+# Node modules and package files
+node_modules/
+package-lock.json
+yarn.lock
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log
+logs/
+
+# CI/CD artifacts
+*.tar.gz
+*.zip
+*.tgz
+
+# Memory and coordination data
+memory/
+coordination/

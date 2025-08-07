@@ -1,0 +1,375 @@
+# GitHub Actions workflow for MPU-6050 kernel driver unit tests
+name: MPU-6050 Unit Tests
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+    paths: 
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/test.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/test.yml'
+  schedule:
+    # Run tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of tests to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - unit
+          - integration
+          - performance
+          - coverage
+
+env:
+  BUILD_TYPE: Debug
+  COVERAGE_THRESHOLD: 80
+
+jobs:
+  # Build and test on multiple platforms
+  test:
+    name: Tests on ${{ matrix.os }} with ${{ matrix.compiler }}
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-latest]
+        compiler: [gcc, clang]
+        include:
+          - os: ubuntu-20.04
+            compiler: gcc
+            packages: gcc-9 g++-9
+            cc: gcc-9
+            cxx: g++-9
+          - os: ubuntu-22.04
+            compiler: gcc
+            packages: gcc-11 g++-11
+            cc: gcc-11
+            cxx: g++-11
+          - os: ubuntu-latest
+            compiler: gcc
+            packages: gcc g++
+            cc: gcc
+            cxx: g++
+          - os: ubuntu-20.04
+            compiler: clang
+            packages: clang-12
+            cc: clang-12
+            cxx: clang++-12
+          - os: ubuntu-22.04
+            compiler: clang
+            packages: clang-14
+            cc: clang-14
+            cxx: clang++-14
+          - os: ubuntu-latest
+            compiler: clang
+            packages: clang
+            cc: clang
+            cxx: clang++
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          ${{ matrix.packages }} \
+          cmake \
+          ninja-build \
+          libgtest-dev \
+          libgmock-dev \
+          valgrind \
+          cppcheck \
+          clang-format \
+          clang-tidy \
+          lcov \
+          pkg-config
+
+    - name: Set compiler environment
+      run: |
+        echo "CC=${{ matrix.cc }}" >> $GITHUB_ENV
+        echo "CXX=${{ matrix.cxx }}" >> $GITHUB_ENV
+
+    - name: Verify compiler installation
+      run: |
+        ${{ matrix.cc }} --version
+        ${{ matrix.cxx }} --version
+
+    - name: Configure CMake
+      working-directory: tests
+      run: |
+        cmake -B build \
+          -G Ninja \
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+          -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+          -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+          -DENABLE_COVERAGE=ON
+
+    - name: Build tests
+      working-directory: tests
+      run: cmake --build build --parallel
+
+    - name: Run unit tests
+      working-directory: tests
+      run: |
+        cd build
+        ctest --output-on-failure --parallel
+
+    - name: Run tests with detailed output
+      working-directory: tests
+      run: |
+        ./build/mpu6050_unit_tests --gtest_output=xml:test_results.xml
+
+    - name: Run specific test categories
+      if: github.event.inputs.test_type == 'all' || github.event.inputs.test_type == ''
+      working-directory: tests
+      run: |
+        echo "Running probe tests..."
+        ./build/mpu6050_unit_tests --gtest_filter="*Probe*" --gtest_output=xml:probe_results.xml
+        echo "Running data reading tests..."
+        ./build/mpu6050_unit_tests --gtest_filter="*ReadSensor*" --gtest_output=xml:data_results.xml
+        echo "Running error handling tests..."
+        ./build/mpu6050_unit_tests --gtest_filter="*Error*:*Handle*" --gtest_output=xml:error_results.xml
+
+    - name: Memory check with Valgrind
+      if: matrix.compiler == 'gcc' # Valgrind works better with GCC
+      working-directory: tests
+      run: |
+        valgrind \
+          --tool=memcheck \
+          --leak-check=full \
+          --show-leak-kinds=all \
+          --track-origins=yes \
+          --error-exitcode=1 \
+          --suppressions=/usr/share/gtest/gtest.supp \
+          ./build/mpu6050_unit_tests \
+          --gtest_filter="-*HighFrequency*:*Concurrent*" # Skip intensive tests for Valgrind
+
+    - name: Static analysis with cppcheck
+      working-directory: tests
+      run: |
+        cppcheck \
+          --enable=all \
+          --std=c++17 \
+          --platform=unix64 \
+          --suppress=missingIncludeSystem \
+          --suppress=unusedFunction \
+          --error-exitcode=1 \
+          --xml \
+          --xml-version=2 \
+          . 2> cppcheck_results.xml
+
+    - name: Code formatting check
+      if: matrix.compiler == 'clang'
+      working-directory: tests
+      run: |
+        find . -name "*.cpp" -o -name "*.h" | xargs clang-format --dry-run --Werror
+
+    - name: Generate code coverage
+      if: matrix.compiler == 'gcc' && matrix.os == 'ubuntu-latest'
+      working-directory: tests
+      run: |
+        cmake --build build --target coverage
+        
+    - name: Check coverage threshold
+      if: matrix.compiler == 'gcc' && matrix.os == 'ubuntu-latest'
+      working-directory: tests
+      run: |
+        # Extract coverage percentage from lcov output
+        COVERAGE=$(lcov --summary build/coverage.info.cleaned 2>/dev/null | grep "lines" | cut -d: -f2 | cut -d% -f1 | xargs)
+        echo "Coverage: ${COVERAGE}%"
+        if (( $(echo "$COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
+          echo "Coverage $COVERAGE% is below threshold $COVERAGE_THRESHOLD%"
+          exit 1
+        fi
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-${{ matrix.os }}-${{ matrix.compiler }}
+        path: |
+          tests/test_results.xml
+          tests/probe_results.xml
+          tests/data_results.xml
+          tests/error_results.xml
+          tests/cppcheck_results.xml
+
+    - name: Upload coverage reports
+      uses: actions/upload-artifact@v4
+      if: matrix.compiler == 'gcc' && matrix.os == 'ubuntu-latest'
+      with:
+        name: coverage-report
+        path: tests/build/coverage/
+
+    - name: Upload to Codecov
+      if: matrix.compiler == 'gcc' && matrix.os == 'ubuntu-latest'
+      uses: codecov/codecov-action@v4
+      with:
+        file: tests/build/coverage.info.cleaned
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: true
+
+  # Performance benchmarks
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_type == 'performance' || github.event.inputs.test_type == 'all' || github.event.inputs.test_type == ''
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc g++ cmake ninja-build libgtest-dev libgmock-dev
+
+    - name: Configure for performance
+      working-directory: tests
+      run: |
+        cmake -B build \
+          -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_CXX_FLAGS="-O3 -DNDEBUG -march=native"
+
+    - name: Build performance tests
+      working-directory: tests
+      run: cmake --build build --parallel
+
+    - name: Run performance benchmarks
+      working-directory: tests
+      run: |
+        ./build/mpu6050_unit_tests --gtest_filter="*Performance*:*HighFrequency*"
+
+    - name: Profile memory usage
+      working-directory: tests
+      run: |
+        /usr/bin/time -v ./build/mpu6050_unit_tests --gtest_filter="*Concurrent*" 2> memory_profile.txt
+        cat memory_profile.txt
+
+    - name: Upload performance results
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-results
+        path: tests/memory_profile.txt
+
+  # Integration with real hardware simulation
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_type == 'integration' || github.event.inputs.test_type == 'all' || github.event.inputs.test_type == ''
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc g++ cmake ninja-build libgtest-dev libgmock-dev
+
+    - name: Configure for integration
+      working-directory: tests
+      run: |
+        cmake -B build \
+          -G Ninja \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DENABLE_HARDWARE_SIMULATION=ON
+
+    - name: Build integration tests
+      working-directory: tests
+      run: cmake --build build --target mpu6050_integration_tests
+
+    - name: Run integration tests
+      working-directory: tests
+      run: |
+        ./build/mpu6050_integration_tests --gtest_output=xml:integration_results.xml
+
+    - name: Upload integration results
+      uses: actions/upload-artifact@v4
+      with:
+        name: integration-results
+        path: tests/integration_results.xml
+
+  # Documentation and reporting
+  documentation:
+    name: Generate Documentation
+    runs-on: ubuntu-latest
+    needs: [test, benchmark, integration]
+    if: always() && (github.ref == 'refs/heads/main' || github.event_name == 'pull_request')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y doxygen graphviz
+
+    - name: Generate documentation
+      working-directory: tests
+      run: |
+        doxygen Doxyfile 2> doxygen_warnings.txt || true
+
+    - name: Upload documentation
+      uses: actions/upload-artifact@v4
+      with:
+        name: documentation
+        path: |
+          tests/docs/
+          tests/doxygen_warnings.txt
+
+  # Notification and reporting
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [test, benchmark, integration]
+    if: always()
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+
+    - name: Generate summary report
+      run: |
+        echo "# Test Results Summary" > test_summary.md
+        echo "" >> test_summary.md
+        echo "## Status" >> test_summary.md
+        echo "- Unit Tests: ${{ needs.test.result }}" >> test_summary.md
+        echo "- Benchmarks: ${{ needs.benchmark.result }}" >> test_summary.md
+        echo "- Integration: ${{ needs.integration.result }}" >> test_summary.md
+        echo "" >> test_summary.md
+        echo "## Artifacts Generated" >> test_summary.md
+        ls -la >> test_summary.md
+
+    - name: Upload summary
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-summary
+        path: test_summary.md
+
+    # Optional: Send notification to Slack/Discord/Email
+    # - name: Notify on failure
+    #   if: failure()
+    #   uses: 8398a7/action-slack@v3
+    #   with:
+    #     status: failure
+    #     text: "MPU-6050 tests failed on ${{ github.ref }}"
