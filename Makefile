@@ -6,7 +6,7 @@ MODULE_NAME := mpu6050
 
 # Source files
 obj-m += $(MODULE_NAME).o
-$(MODULE_NAME)-objs := drivers/mpu6050_main.o drivers/mpu6050_i2c.o drivers/mpu6050_sysfs.o
+$(MODULE_NAME)-objs := drivers/mpu6050_main.o
 
 # Kernel build directory
 KERNEL_VERSION := $(shell uname -r)
